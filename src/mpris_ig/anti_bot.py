@@ -1,0 +1,104 @@
+"""Anti-bot controls: track-change debouncing, randomized jitter, and cooldown guards."""
+
+from __future__ import annotations
+
+import random
+import time
+
+from mpris_ig.mpris import MprisTrack
+
+
+class TrackDebouncer:
+    """Require a Playing track to stay unchanged for `debounce_seconds` before emitting."""
+
+    def __init__(self, debounce_seconds: float) -> None:
+        self._debounce_seconds = max(0.0, float(debounce_seconds))
+        self._pending_key: tuple[str, str] | None = None
+        self._pending_since: float = 0.0
+        self._last_posted_key: tuple[str, str] | None = None
+
+    @property
+    def last_posted_key(self) -> tuple[str, str] | None:
+        return self._last_posted_key
+
+    def reset_pending(self) -> None:
+        self._pending_key = None
+        self._pending_since = 0.0
+
+    def mark_posted(self, track: MprisTrack) -> None:
+        self._last_posted_key = track.identity_key
+        self._pending_key = None
+        self._pending_since = 0.0
+
+    def clear_posted(self) -> None:
+        self._last_posted_key = None
+
+    def observe(self, track: MprisTrack | None, *, now: float | None = None) -> MprisTrack | None:
+        """Feed the latest MPRIS observation; return track only when stable & new."""
+        ts = time.monotonic() if now is None else now
+
+        if track is None or track.status != "Playing" or not track.title:
+            self.reset_pending()
+            return None
+
+        key = track.identity_key
+        if key == self._last_posted_key:
+            self.reset_pending()
+            return None
+
+        if key != self._pending_key:
+            self._pending_key = key
+            self._pending_since = ts
+            if self._debounce_seconds == 0.0:
+                return track
+            return None
+
+        if (ts - self._pending_since) >= self._debounce_seconds:
+            return track
+
+        return None
+
+
+class CooldownGuard:
+    """Enforce minimum spacing between Music Note writes and backoff on rate limits."""
+
+    def __init__(
+        self,
+        min_post_interval_seconds: float,
+        rate_limit_cooldown_seconds: float,
+    ) -> None:
+        self._min_post_interval = max(0.0, float(min_post_interval_seconds))
+        self._rate_limit_cooldown = max(0.0, float(rate_limit_cooldown_seconds))
+        self._last_post_ts: float | None = None
+        self._blocked_until_ts: float = 0.0
+
+    def can_post(self, *, now: float | None = None) -> tuple[bool, float]:
+        """Return (allowed, seconds_remaining)."""
+        ts = time.monotonic() if now is None else now
+        remaining = 0.0
+
+        if ts < self._blocked_until_ts:
+            remaining = max(remaining, self._blocked_until_ts - ts)
+
+        if self._last_post_ts is not None:
+            elapsed = ts - self._last_post_ts
+            if elapsed < self._min_post_interval:
+                remaining = max(remaining, self._min_post_interval - elapsed)
+
+        return (remaining <= 0.0, round(remaining, 2))
+
+    def record_post(self, *, now: float | None = None) -> None:
+        ts = time.monotonic() if now is None else now
+        self._last_post_ts = ts
+
+    def record_rate_limit(self, *, now: float | None = None) -> float:
+        ts = time.monotonic() if now is None else now
+        self._blocked_until_ts = ts + self._rate_limit_cooldown
+        return self._rate_limit_cooldown
+
+
+def random_jitter(min_seconds: float, max_seconds: float) -> float:
+    """Sample a uniform randomized delay in [min_seconds, max_seconds]."""
+    low = max(0.0, float(min_seconds))
+    high = max(low, float(max_seconds))
+    return random.uniform(low, high)
