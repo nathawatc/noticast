@@ -1,0 +1,66 @@
+# Configuration for mpris-ig-nowplaying
+# Copy to config.toml and customize as needed.
+
+[paths]
+session_file = "session.json"
+state_file = ".note_state.json"
+
+[device]
+# Generic Android profile (customize in config.toml to match your own device)
+android_version = 34
+android_release = "14"
+dpi = "480dpi"
+resolution = "1344x2992"
+manufacturer = "Google/google"
+device = "husky"
+model = "Pixel 8 Pro"
+cpu = "husky"
+
+[region]
+locale = "en_US"
+country = "US"
+country_code = 1
+timezone_offset = 0
+timezone_name = "UTC"
+
+[mpris]
+# "auto" prefers busctl (native systemd D-Bus JSON), falling back to playerctl
+backend = "auto"
+poll_interval_seconds = 5.0
+# Empty list = allow any MPRIS player not listed in ignored_players
+allowed_players = []
+ignored_players = ["kdeconnect", "gsconnect"]
+# Filter by xesam:url prefix (empty list [] disables URL filtering)
+allowed_url_prefixes = ["https://music.youtube.com"]
+# Only accept tracks shorter than this duration in seconds (0 disables; 420 = 7 min)
+max_length_seconds = 420
+
+[anti_bot]
+# Track must remain Playing & unchanged for this long before triggering IG API
+debounce_seconds = 20.0
+# Random human-like wait before executing search + note update
+jitter_min_seconds = 3.0
+jitter_max_seconds = 10.0
+# Minimum gap between actual Music Note posts (recommended >= 120s)
+min_post_interval_seconds = 150.0
+# Cooldown if Instagram returns 429 / PleaseWaitFewMinutes / FeedbackRequired
+rate_limit_cooldown_seconds = 900.0
+# Per-request random delay passed to instagrapi Client.delay_range
+request_delay_range = [1.5, 4.0]
+
+[note]
+# "mutual_followers" or "close_friends"
+audience = "mutual_followers"
+# Optional template using {title} and {artist}, max 60 chars ("" = music only)
+text_template = ""
+# Keep the latest Music Note active when music pauses or stops
+clear_on_stop = false
+# false = overwrite active note directly (like the app, saves 2 API calls); true = delete first
+delete_before_post = false
+# Check on daemon startup if Instagram already has the currently playing song in Notes
+check_existing_on_startup = true
+dry_run = false
+
+[logging]
+# Toggle detailed HTTP/JSON/MPRIS debug output (can also use CLI --verbose / --quiet)
+verbose = false
