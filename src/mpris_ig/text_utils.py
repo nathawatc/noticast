@@ -111,8 +111,21 @@ def format_note_text(
     return f"{''.join(kept).rstrip()}…"
 
 
+def _has_non_ascii(text: str) -> bool:
+    return any(ord(ch) > 127 for ch in text)
+
+
 def is_meaningful_substring(a: str, b: str) -> bool:
-    return bool(a and b and min(len(a), len(b)) >= 3 and (a in b or b in a))
+    if not a or not b:
+        return False
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    if len(shorter) >= 3:
+        return shorter in longer
+    if len(shorter) == 2:
+        if _has_non_ascii(shorter) and shorter in longer:
+            return True
+        return bool(re.search(rf"(?:^|[\s(\[\-]){re.escape(shorter)}(?:$|[\s)\]\-])", longer))
+    return False
 
 
 def _similarity(a: str, b: str) -> float:

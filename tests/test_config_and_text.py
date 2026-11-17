@@ -23,6 +23,7 @@ from mpris_ig.session import create_client  # noqa: E402
 from mpris_ig.text_utils import (  # noqa: E402
     build_search_queries,
     format_note_text,
+    is_meaningful_substring,
     normalize_display,
     normalize_match_key,
     score_track_match,
@@ -203,6 +204,16 @@ class CjkAndThaiTextTests(unittest.TestCase):
     def test_score_track_match_rejects_short_substring_and_handles_swapped_artists(self):
         one_char = _track("a", "Other", "10")
         self.assertLess(score_track_match(one_char, "All Too Well", "Taylor Swift"), 25.0)
+
+        self.assertFalse(is_meaningful_substring("on", "song"))
+        self.assertTrue(is_meaningful_substring("晴天", "晴天 (live)"))
+        self.assertTrue(is_meaningful_substring("go", "go (remix)"))
+
+        short_cjk_live = _track("晴天 (Live)", "周杰倫", "14")
+        self.assertGreater(score_track_match(short_cjk_live, "晴天", "周杰倫"), 80.0)
+
+        short_ascii_word = _track("GO (Remix)", "Artist", "15")
+        self.assertGreater(score_track_match(short_ascii_word, "GO", "Artist"), 80.0)
 
         swapped = _track("Collab Song", "Artist B, Artist A", "11")
         wrong_artist = _track("Collab Song", "Completely Different", "12")
