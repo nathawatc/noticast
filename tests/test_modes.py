@@ -23,6 +23,7 @@ from instagrapi.mixins.note import NoteAudience  # noqa: E402
 from instagrapi.types import Note, Track, UserShort  # noqa: E402
 
 from mpris_ig.cli import main as cli_main  # noqa: E402
+from mpris_ig.cli import run_clear  # noqa: E402
 from mpris_ig.config import (  # noqa: E402
     AntiBotConfig,
     AppConfig,
@@ -240,6 +241,38 @@ class ManualModeTests(unittest.TestCase):
             text="",
             audience=NoteAudience.MUTUAL_FOLLOWERS,
         )
+
+    def test_clear_command_deletes_note_and_clears_state(self):
+        cl = mock.MagicMock()
+        cl.user_id = 123
+        cl.get_notes.return_value = [_note("555", "123", 1)]
+        cl.last_json = {}
+        cl.delete_note.return_value = True
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logger = logging.getLogger("test_clear")
+            state_path = Path(tmpdir) / "state.json"
+            save_note_state(state_path, NoteState(note_id="555", mpris_title="Song"))
+            cfg = AppConfig(paths=PathsConfig(state_file=state_path))
+
+            rc_dry = run_clear(
+                cfg,
+                logger,
+                dry_run=True,
+                service_factory=lambda _c, lgr: InstagramNotesService(cl, lgr),
+            )
+            self.assertEqual(rc_dry, 0)
+            cl.delete_note.assert_not_called()
+            self.assertTrue(state_path.exists())
+
+            rc = run_clear(
+                cfg,
+                logger,
+                service_factory=lambda _c, lgr: InstagramNotesService(cl, lgr),
+            )
+            self.assertEqual(rc, 0)
+            cl.delete_note.assert_called_once_with(555)
+            self.assertFalse(state_path.exists())
 
 
 class DaemonModeTests(unittest.TestCase):
