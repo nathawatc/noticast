@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from difflib import SequenceMatcher
 
 from instagrapi.types import Track
 
@@ -100,23 +101,10 @@ def format_note_text(
     return f"{rendered[:cut].rstrip()}…"
 
 
-def _char_bigrams(text: str) -> set[str]:
-    compact = text.replace(" ", "")
-    if len(compact) < 2:
-        return {compact} if compact else set()
-    return {compact[i : i + 2] for i in range(len(compact) - 1)}
-
-
 def _similarity(a: str, b: str) -> float:
     if not a or not b:
         return 0.0
-    if a == b:
-        return 1.0
-    ga = _char_bigrams(a)
-    gb = _char_bigrams(b)
-    if not ga or not gb:
-        return 0.0
-    return (2.0 * len(ga & gb)) / (len(ga) + len(gb))
+    return SequenceMatcher(None, a.replace(" ", ""), b.replace(" ", "")).ratio()
 
 
 def score_track_match(track: Track, target_title: str, target_artist: str = "") -> float:
