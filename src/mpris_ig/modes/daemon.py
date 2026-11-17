@@ -243,7 +243,7 @@ class DaemonRunner:
                 candidate.title,
                 candidate.artist_display or "<unknown artist>",
             )
-            self._debouncer.mark_posted(candidate)
+            self._debouncer.mark_posted(candidate, now=now)
             self._has_active_note = True
             self._startup_active_note = None
             return None
@@ -293,7 +293,7 @@ class DaemonRunner:
                     confirmed.title,
                     confirmed.artist_display,
                 )
-                self._debouncer.mark_posted(confirmed)
+                self._debouncer.mark_posted(confirmed, now=now)
                 return None
 
             ig_track, score = matched
@@ -309,7 +309,7 @@ class DaemonRunner:
                     ig_track.audio_cluster_id,
                     ig_track.title,
                 )
-                self._debouncer.mark_posted(confirmed)
+                self._debouncer.mark_posted(confirmed, now=now)
                 self._has_active_note = True
                 self._startup_active_note = None
                 save_note_state(
@@ -341,9 +341,10 @@ class DaemonRunner:
                     ig_track.audio_cluster_id,
                     note_text,
                 )
-                self._debouncer.mark_posted(confirmed)
+                post_now = self._clock_fn()
+                self._debouncer.mark_posted(confirmed, now=post_now)
                 self._has_active_note = True
-                self._cooldown.record_post(now=self._clock_fn())
+                self._cooldown.record_post(now=post_now)
                 return None
 
             note = self._service.replace_music_note(
@@ -352,9 +353,10 @@ class DaemonRunner:
                 audience=audience,
                 delete_before_post=self._config.note.delete_before_post,
             )
-            self._debouncer.mark_posted(confirmed)
+            post_now = self._clock_fn()
+            self._debouncer.mark_posted(confirmed, now=post_now)
             self._has_active_note = True
-            self._cooldown.record_post(now=self._clock_fn())
+            self._cooldown.record_post(now=post_now)
             self._startup_active_note = None
             save_note_state(
                 self._config.paths.state_file,

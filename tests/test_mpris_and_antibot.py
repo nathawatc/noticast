@@ -246,6 +246,16 @@ class AntiBotTests(unittest.TestCase):
         self.assertIsNone(debouncer.observe(playing, now=16.0))
         self.assertEqual(debouncer.observe(playing, now=31.0), playing)
 
+    def test_debouncer_expires_last_posted_after_24h_note_ttl(self):
+        debouncer = TrackDebouncer(debounce_seconds=10.0)
+        track = MprisTrack("spotify", "Playing", "Song A", ("Artist A",))
+
+        debouncer.mark_posted(track, now=100.0)
+        self.assertIsNone(debouncer.observe(track, now=86_499.0))
+        # At >= 86400s later, expired Note allows re-debouncing & re-posting.
+        self.assertIsNone(debouncer.observe(track, now=86_500.0))
+        self.assertEqual(debouncer.observe(track, now=86_510.0), track)
+
     def test_cooldown_guard_enforces_post_interval_and_rate_limit_backoff(self):
         guard = CooldownGuard(min_post_interval_seconds=150.0, rate_limit_cooldown_seconds=900.0)
         self.assertEqual(guard.can_post(now=100.0), (True, 0.0))

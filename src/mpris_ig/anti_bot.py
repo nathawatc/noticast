@@ -7,15 +7,24 @@ import time
 
 from mpris_ig.mpris import MprisTrack
 
+DEFAULT_NOTE_TTL_SECONDS = 86_400.0
+
 
 class TrackDebouncer:
     """Require a Playing track to stay unchanged for `debounce_seconds` before emitting."""
 
-    def __init__(self, debounce_seconds: float) -> None:
+    def __init__(
+        self,
+        debounce_seconds: float,
+        *,
+        note_ttl_seconds: float = DEFAULT_NOTE_TTL_SECONDS,
+    ) -> None:
         self._debounce_seconds: float = max(0.0, float(debounce_seconds))
+        self._note_ttl_seconds: float = max(0.0, float(note_ttl_seconds))
         self._pending_key: tuple[str, str] | None = None
         self._pending_since: float = 0.0
         self._last_posted_key: tuple[str, str] | None = None
+        self._last_posted_at: float | None = None
 
     @property
     def last_posted_key(self) -> tuple[str, str] | None:
@@ -25,17 +34,27 @@ class TrackDebouncer:
         self._pending_key = None
         self._pending_since = 0.0
 
-    def mark_posted(self, track: MprisTrack) -> None:
+    def mark_posted(self, track: MprisTrack, *, now: float | None = None) -> None:
         self._last_posted_key = track.identity_key
+        self._last_posted_at = time.monotonic() if now is None else now
         self._pending_key = None
         self._pending_since = 0.0
 
     def clear_posted(self) -> None:
         self._last_posted_key = None
+        self._last_posted_at = None
 
     def observe(self, track: MprisTrack | None, *, now: float | None = None) -> MprisTrack | None:
         """Feed the latest MPRIS observation; return track only when stable & new."""
         ts = time.monotonic() if now is None else now
+
+        if (
+            self._last_posted_key is not None
+            and self._note_ttl_seconds > 0
+            and self._last_posted_at is not None
+            and (ts - self._last_posted_at) >= self._note_ttl_seconds
+        ):
+            self.clear_posted()
 
         if track is None or track.status != "Playing" or not track.title:
             self.reset_pending()
