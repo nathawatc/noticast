@@ -15,6 +15,7 @@ _SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
+import requests  # noqa: E402
 from instagrapi.exceptions import LoginRequired, PleaseWaitFewMinutes, TwoFactorRequired  # noqa: E402
 from instagrapi.mixins.note import NoteAudience  # noqa: E402
 from instagrapi.types import Note, Track, UserShort  # noqa: E402
@@ -30,9 +31,14 @@ from mpris_ig.config import (  # noqa: E402
 from mpris_ig.modes.daemon import DaemonRunner  # noqa: E402
 from mpris_ig.modes.manual import run_manual  # noqa: E402
 from mpris_ig.mpris import MprisTrack  # noqa: E402
-from mpris_ig.notes_service import InstagramNotesService  # noqa: E402
-from mpris_ig.session import authenticate_and_save, logout_session  # noqa: E402
-from mpris_ig.state import NoteState, save_note_state  # noqa: E402
+from mpris_ig.notes_service import InstagramNotesService, NotesApiError  # noqa: E402
+from mpris_ig.session import (  # noqa: E402
+    SessionNotReadyError,
+    authenticate_and_save,
+    load_authenticated_client,
+    logout_session,
+)
+from mpris_ig.state import NoteState, load_note_state, save_note_state  # noqa: E402
 
 
 def _track(title: str = "แค่มีเธอ", artist: str = "Three Man Down", idx: int = 1) -> Track:
@@ -94,6 +100,38 @@ class SessionFlowTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             cl.logout.assert_called_once_with()
             self.assertFalse(session_path.exists())
+
+    def test_corrupted_session_and_state_files_fail_safely(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            session_path = tmp / "session.json"
+            session_path.write_text("{broken json", encoding="utf-8")
+            cfg = AppConfig(paths=PathsConfig(session_file=session_path))
+
+            with self.assertRaises(SessionNotReadyError):
+                load_authenticated_client(cfg)
+
+            state_path = tmp / "state.json"
+            state_path.write_text('{"note_id": ["not-a-string"]}', encoding="utf-8")
+            self.assertIsNone(load_note_state(state_path))
+
+            save_note_state(state_path, NoteState(note_id="42", mpris_title="Song"))
+            loaded = load_note_state(state_path)
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(loaded.note_id, "42")
+
+    def test_notes_service_wraps_timeout_and_assertion_errors(self):
+        cl = mock.MagicMock()
+        cl.search_music.side_effect = requests.exceptions.ReadTimeout("timed out")
+        service = InstagramNotesService(cl, logging.getLogger("test_svc_err"))
+        with self.assertRaises(NotesApiError):
+            service.search_tracks("hello")
+
+        cl.notes_music_browser.return_value = {}
+        cl.create_music_note.side_effect = AssertionError("alacorn_session_id is required")
+        with self.assertRaises(NotesApiError):
+            service.post_music_note(_track())
 
 
 class ManualModeTests(unittest.TestCase):
@@ -406,6 +444,58 @@ class DaemonModeTests(unittest.TestCase):
         self.assertIsNone(runner.step())
         cl.search_music.assert_not_called()
         cl.create_music_note.assert_not_called()
+
+    def test_clear_on_stop_handles_api_errors_and_ignores_unmatched_tracks(self):
+        playing = MprisTrack("spotify", "Playing", "Song", ("Artist",))
+        paused = MprisTrack("spotify", "Paused", "Song", ("Artist",))
+        backend = mock.MagicMock()
+        backend.get_active_track.side_effect = [
+            playing,
+            playing,
+            playing,
+            paused,  # first pause: deletes note (hits RateLimitedError cleanly)
+            paused,  # second pause: still in cooldown
+        ]
+
+        ig_track = _track("Song", "Artist", 1)
+        cl = mock.MagicMock()
+        cl.user_id = 123
+        cl.search_music.return_value = [ig_track]
+        cl.notes_music_browser.return_value = {"alacorn_session_id": "al-3"}
+        cl.create_music_note.return_value = _note("701", "123", 1)
+        cl.get_notes.side_effect = PleaseWaitFewMinutes("rate limited")
+
+        runner = self._build_daemon_runner(
+            backend=backend,
+            cl=cl,
+            clear_on_stop=True,
+            clock_values=[0.0, 11.0, 11.0, 150.0, 150.0, 160.0],
+        )
+        self.assertIsNone(runner.step())  # start debounce
+        self.assertIsNone(runner.step())  # posts note
+        # Pause hits RateLimitedError during clear_on_stop -> caught, enters cooldown, returns None
+        self.assertIsNone(runner.step())
+        self.assertEqual(cl.get_notes.call_count, 1)
+        # Next pause is blocked by cooldown
+        self.assertIsNone(runner.step())
+        self.assertEqual(cl.get_notes.call_count, 1)
+
+        # Unmatched track must NOT trigger clear_on_stop when paused
+        backend2 = mock.MagicMock()
+        backend2.get_active_track.side_effect = [playing, playing, playing, paused]
+        cl2 = mock.MagicMock()
+        cl2.user_id = 123
+        cl2.search_music.return_value = []
+        runner2 = self._build_daemon_runner(
+            backend=backend2,
+            cl=cl2,
+            clear_on_stop=True,
+            clock_values=[0.0, 11.0, 11.0, 20.0],
+        )
+        self.assertIsNone(runner2.step())
+        self.assertIsNone(runner2.step())
+        self.assertIsNone(runner2.step())
+        cl2.get_notes.assert_not_called()
 
     def test_cli_verbose_flag_and_once_dry_run(self):
         with tempfile.TemporaryDirectory() as tmpdir:

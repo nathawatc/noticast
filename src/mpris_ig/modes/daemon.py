@@ -63,6 +63,7 @@ class DaemonRunner:
         self._startup_checked = not config.note.check_existing_on_startup
         self._startup_active_note: ActiveMusicNote | None = None
         self._saved_state: NoteState | None = load_note_state(config.paths.state_file)
+        self._has_active_note: bool = False
 
     def _matches_startup_note_metadata(self, track: MprisTrack) -> bool:
         """Check if active Note metadata or note_id-verified state already matches track."""
@@ -99,7 +100,9 @@ class DaemonRunner:
             if saved_mpris == (raw_title, goal_artist):
                 return True
             if normalize_match_key(state.ig_title) in (goal_title, raw_title):
-                return True
+                ig_artist = normalize_match_key(state.ig_artist)
+                if not goal_artist or ig_artist == goal_artist:
+                    return True
 
         return False
 
@@ -148,22 +151,46 @@ class DaemonRunner:
             return self._stop_event.is_set()
         return self._stop_event.wait(timeout=seconds)
 
-    def _handle_stop_cleanup(self, now: float) -> None:
-        if not self._config.note.clear_on_stop:
-            return
-        if self._debouncer.last_posted_key is None:
-            return
+    def _poll_active_track(self) -> tuple[MprisTrack | None, bool]:
+        try:
+            return self._backend.get_active_track(), True
+        except MprisBackendError as exc:
+            self._logger.warning("[MPRIS] Failed to read active track (skipping cycle): %s", exc)
+            return None, False
+
+    def _handle_stop_cleanup(self, now: float) -> int | None:
+        if not self._config.note.clear_on_stop or not self._has_active_note:
+            return None
         allowed, remaining = self._cooldown.can_post(now=now)
         if not allowed:
             self._logger.debug("[Cooldown] Skipping clear_on_stop (%.1fs remaining).", remaining)
-            return
+            return None
         if self._dry_run:
             self._logger.info("[Dry Run] Would clear personal note on playback stop.")
+            self._has_active_note = False
             self._debouncer.clear_posted()
-            return
-        self._service.delete_existing_user_notes()
+            return None
+        try:
+            self._service.delete_existing_user_notes()
+        except (SessionExpiredError, CheckpointRequiredError) as exc:
+            self._logger.error("[Auth] Stopping daemon safely: %s", exc)
+            return 1
+        except RateLimitedError as exc:
+            wait_s = self._cooldown.record_rate_limit(now=self._clock_fn())
+            self._logger.warning(
+                "[RateLimit] %s — pausing clear_on_stop for %.0fs.",
+                exc,
+                wait_s,
+            )
+            return None
+        except NotesApiError as exc:
+            self._logger.warning("[IG] Failed to clear note on stop (will retry later): %s", exc)
+            return None
+
         self._cooldown.record_post(now=now)
+        self._has_active_note = False
         self._debouncer.clear_posted()
+        return None
 
     def step(self) -> int | None:
         """Run one poll/debounce/post cycle. Return exit code to terminate, else None."""
@@ -172,7 +199,9 @@ class DaemonRunner:
             return startup_rc
 
         now = self._clock_fn()
-        track = self._backend.get_active_track()
+        track, ok = self._poll_active_track()
+        if not ok:
+            return None
 
         if track is None or track.status != "Playing":
             status = track.status if track else "None"
@@ -180,8 +209,7 @@ class DaemonRunner:
                 self._logger.debug("[MPRIS] Playback state: %s", status)
                 self._last_seen_status = status
             self._debouncer.observe(track, now=now)
-            self._handle_stop_cleanup(now)
-            return None
+            return self._handle_stop_cleanup(now)
 
         self._last_seen_status = track.status
         candidate = self._debouncer.observe(track, now=now)
@@ -195,6 +223,7 @@ class DaemonRunner:
                 candidate.artist_display or "<unknown artist>",
             )
             self._debouncer.mark_posted(candidate)
+            self._has_active_note = True
             self._startup_active_note = None
             return None
 
@@ -223,14 +252,16 @@ class DaemonRunner:
             return 0
 
         # Re-check MPRIS after jitter wait in case the user skipped or paused.
-        confirmed = self._backend.get_active_track()
+        confirmed, ok = self._poll_active_track()
         if (
-            confirmed is None
+            not ok
+            or confirmed is None
             or confirmed.status != "Playing"
             or confirmed.identity_key != candidate.identity_key
         ):
             self._logger.info("[MPRIS] Track changed or paused during jitter wait; skipping post.")
-            self._debouncer.observe(confirmed, now=self._clock_fn())
+            if ok:
+                self._debouncer.observe(confirmed, now=self._clock_fn())
             return None
 
         try:
@@ -258,6 +289,7 @@ class DaemonRunner:
                     ig_track.title,
                 )
                 self._debouncer.mark_posted(confirmed)
+                self._has_active_note = True
                 self._startup_active_note = None
                 save_note_state(
                     self._config.paths.state_file,
@@ -289,6 +321,7 @@ class DaemonRunner:
                     note_text,
                 )
                 self._debouncer.mark_posted(confirmed)
+                self._has_active_note = True
                 self._cooldown.record_post(now=self._clock_fn())
                 return None
 
@@ -299,6 +332,7 @@ class DaemonRunner:
                 delete_before_post=self._config.note.delete_before_post,
             )
             self._debouncer.mark_posted(confirmed)
+            self._has_active_note = True
             self._cooldown.record_post(now=self._clock_fn())
             self._startup_active_note = None
             save_note_state(

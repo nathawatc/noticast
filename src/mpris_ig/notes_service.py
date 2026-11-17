@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
+import requests
 from instagrapi import Client
 from instagrapi.exceptions import (
     ChallengeRequired,
@@ -169,6 +170,9 @@ class InstagramNotesService:
                     "Re-run `./.venv/bin/python main.py setup`."
                 ) from exc
             raise NotesApiError(f"{exc.__class__.__name__}: {exc}") from exc
+        except (requests.exceptions.RequestException, KeyError, AssertionError, ValueError) as exc:
+            log_http_debug(self._logger, self._cl, f"{label} [{exc.__class__.__name__}]")
+            raise NotesApiError(f"{exc.__class__.__name__}: {exc}") from exc
 
         log_http_debug(self._logger, self._cl, label)
         return result
@@ -240,7 +244,7 @@ class InstagramNotesService:
             )
             self._call(
                 f"cl.delete_note({note.id})",
-                lambda nid=int(note.id): self._cl.delete_note(nid),
+                lambda nid=note.id: self._cl.delete_note(int(nid)),
             )
         return own_notes
 
