@@ -214,6 +214,62 @@ class MprisParsingTests(unittest.TestCase):
         finally:
             backend.close()
 
+    def test_dbus_backend_whitelist_and_error_reply_fallback(self):
+        class _MixedBus:
+            async def call(self, msg: Message) -> Message:
+                req = Message(
+                    destination=msg.destination,
+                    path=msg.path,
+                    interface=msg.interface,
+                    member=msg.member,
+                    serial=1,
+                )
+                if msg.member == "ListNames":
+                    return Message.new_method_return(
+                        req,
+                        "as",
+                        [
+                            [
+                                "org.mpris.MediaPlayer2.chromium",
+                                "org.mpris.MediaPlayer2.spotify",
+                                "org.mpris.MediaPlayer2.vlc",
+                            ]
+                        ],
+                    )
+                if msg.destination == "org.mpris.MediaPlayer2.spotify":
+                    return Message.new_error(req, "org.freedesktop.DBus.Error.Failed", "boom")
+                return Message.new_method_return(
+                    req,
+                    "a{sv}",
+                    [
+                        {
+                            "PlaybackStatus": Variant("s", "Paused"),
+                            "Metadata": Variant(
+                                "a{sv}", {"xesam:title": Variant("s", "VLC Paused")}
+                            ),
+                        }
+                    ],
+                )
+
+            def disconnect(self) -> None:
+                pass
+
+        async def factory() -> _MixedBus:
+            return _MixedBus()
+
+        cfg = MprisConfig(allowed_players=("spotify", "vlc"))
+        backend = DbusMprisBackend(cfg, logging.getLogger("test_mixed"), bus_factory=factory)
+        try:
+            active = backend.get_active_track()
+        finally:
+            backend.close()
+
+        self.assertIsNotNone(active)
+        assert active is not None
+        self.assertEqual(active.player_name, "vlc")
+        self.assertEqual(active.status, "Paused")
+        self.assertEqual(active.title, "VLC Paused")
+
 
 class AntiBotTests(unittest.TestCase):
     def test_debouncer_ignores_rapid_skips_and_emits_after_stable_window(self):

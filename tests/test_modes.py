@@ -613,6 +613,82 @@ class DaemonModeTests(unittest.TestCase):
         self.assertIsNone(runner2.step())
         cl2.get_notes.assert_not_called()
 
+    def test_clear_on_stop_deletes_note_and_allows_repost_on_resume(self):
+        playing = MprisTrack("spotify", "Playing", "Song", ("Artist",))
+        paused = MprisTrack("spotify", "Paused", "Song", ("Artist",))
+        backend = mock.MagicMock()
+        backend.get_active_track.side_effect = [
+            playing,  # t=0 start debounce
+            playing,  # t=11 post 1
+            playing,  # t=11 confirm
+            paused,  # t=150 pause -> delete note
+            playing,  # t=300 resume -> start debounce again
+            playing,  # t=315 post 2
+            playing,  # t=315 confirm
+        ]
+
+        ig_track = _track("Song", "Artist", 1)
+        cl = mock.MagicMock()
+        cl.user_id = 123
+        cl.search_music.return_value = [ig_track]
+        cl.get_notes.return_value = [_note("701", "123", 1)]
+        cl.delete_note.return_value = True
+        cl.create_music_note.side_effect = [_note("701", "123", 1), _note("702", "123", 1)]
+
+        runner = self._build_daemon_runner(
+            backend=backend,
+            cl=cl,
+            clear_on_stop=True,
+            clock_values=[0.0, 11.0, 11.0, 150.0, 300.0, 315.0, 315.0],
+        )
+        self.assertIsNone(runner.step())
+        self.assertIsNone(runner.step())
+        self.assertEqual(cl.create_music_note.call_count, 1)
+
+        self.assertIsNone(runner.step())  # pause triggers delete_note
+        cl.delete_note.assert_called_once_with(701)
+
+        self.assertIsNone(runner.step())  # resume restarts debounce
+        self.assertIsNone(runner.step())  # re-posts once debounce finishes
+        self.assertEqual(cl.create_music_note.call_count, 2)
+
+    def test_daemon_enforces_min_post_interval_before_posting_next_track(self):
+        t1 = MprisTrack("spotify", "Playing", "Song 1", ("Artist 1",))
+        t2 = MprisTrack("spotify", "Playing", "Song 2", ("Artist 2",))
+        backend = mock.MagicMock()
+        backend.get_active_track.side_effect = [
+            t1,  # t=0 debounce t1
+            t1,  # t=11 post t1
+            t1,  # t=11 confirm t1
+            t2,  # t=20 debounce t2
+            t2,  # t=35 t2 stable, blocked by 120s min_post_interval (remaining 96s)
+            t2,  # t=140 interval elapsed -> posts t2
+            t2,  # t=140 confirm t2
+        ]
+
+        ig1 = _track("Song 1", "Artist 1", 1)
+        ig2 = _track("Song 2", "Artist 2", 2)
+        cl = mock.MagicMock()
+        cl.user_id = 123
+        cl.search_music.side_effect = [[ig1], [ig2]]
+        cl.create_music_note.side_effect = [_note("801", "123", 1), _note("802", "123", 1)]
+
+        runner = self._build_daemon_runner(
+            backend=backend,
+            cl=cl,
+            clock_values=[0.0, 11.0, 11.0, 20.0, 35.0, 140.0, 140.0],
+        )
+        self.assertIsNone(runner.step())
+        self.assertIsNone(runner.step())
+        self.assertEqual(cl.create_music_note.call_count, 1)
+
+        self.assertIsNone(runner.step())  # t=20 starts t2 debounce
+        self.assertIsNone(runner.step())  # t=35 blocked by cooldown
+        self.assertEqual(cl.create_music_note.call_count, 1)
+
+        self.assertIsNone(runner.step())  # t=140 posts t2
+        self.assertEqual(cl.create_music_note.call_count, 2)
+
     def test_startup_short_note_title_does_not_skip_unrelated_song(self):
         track_mpris = MprisTrack("spotify", "Playing", "Imagine", ("John Lennon",))
         backend = mock.MagicMock()
