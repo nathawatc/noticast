@@ -12,7 +12,7 @@ class TrackDebouncer:
     """Require a Playing track to stay unchanged for `debounce_seconds` before emitting."""
 
     def __init__(self, debounce_seconds: float) -> None:
-        self._debounce_seconds = max(0.0, float(debounce_seconds))
+        self._debounce_seconds: float = max(0.0, float(debounce_seconds))
         self._pending_key: tuple[str, str] | None = None
         self._pending_since: float = 0.0
         self._last_posted_key: tuple[str, str] | None = None
@@ -67,8 +67,8 @@ class CooldownGuard:
         min_post_interval_seconds: float,
         rate_limit_cooldown_seconds: float,
     ) -> None:
-        self._min_post_interval = max(0.0, float(min_post_interval_seconds))
-        self._rate_limit_cooldown = max(0.0, float(rate_limit_cooldown_seconds))
+        self._min_post_interval: float = max(0.0, float(min_post_interval_seconds))
+        self._rate_limit_cooldown: float = max(0.0, float(rate_limit_cooldown_seconds))
         self._last_post_ts: float | None = None
         self._blocked_until_ts: float = 0.0
 

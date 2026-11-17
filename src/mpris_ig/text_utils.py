@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Iterator
+from typing import cast
 
 import grapheme
 from instagrapi.types import Track
@@ -14,8 +16,8 @@ MAX_NOTE_TEXT_LENGTH = 60
 _WHITESPACE_RE = re.compile(r"\s+")
 _PAREN_NOISE_RE = re.compile(
     r"\s*[\(\[【「](?:[^()\[\]【】」]*?(?:official|mv|music video|lyric|audio|live|"
-    r"ver\.?|version|feat\.?|ft\.?|remaster|sped up|slowed)[^()\[\]【】」]*)"
-    r"[\)\]】」]",
+    + r"ver\.?|version|feat\.?|ft\.?|remaster|sped up|slowed)[^()\[\]【】」]*)"
+    + r"[\)\]】」]",
     re.IGNORECASE,
 )
 _TRAILING_FEAT_RE = re.compile(r"\s+(?:feat\.?|ft\.?)\s+.+$", re.IGNORECASE)
@@ -93,7 +95,8 @@ def format_note_text(
     if len(rendered) <= max_len:
         return rendered
 
-    clusters = [c for c in grapheme.graphemes(rendered) if isinstance(c, str)]
+    grapheme_iter = cast(Iterator[str], grapheme.graphemes(rendered))  # pyright: ignore[reportUnknownMemberType]
+    clusters = list(grapheme_iter)
     if max_len == 1:
         return clusters[0] if clusters and len(clusters[0]) == 1 else ""
 

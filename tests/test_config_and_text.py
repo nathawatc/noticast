@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import cast, override
 from unittest import mock
 
 _SRC_DIR = Path(__file__).resolve().parents[1] / "src"
@@ -67,10 +68,10 @@ class ConfigAndSpoofTests(unittest.TestCase):
             custom_path = Path(tmpdir) / "custom.toml"
             custom_path.write_text(
                 '[device]\nmodel = "SM-S918B"\ndevice = "dm3q"\ncpu = "qcom"\n'
-                'manufacturer = "samsung"\nresolution = "1440x3088"\ndpi = "480dpi"\n'
-                '[region]\nlocale = "ja_JP"\ncountry = "JP"\ncountry_code = 81\n'
-                'timezone_offset = 32400\ntimezone_name = "Asia/Tokyo"\n'
-                "[mpris]\nallowed_url_prefixes = []\nmax_length_seconds = 0\n",
+                + 'manufacturer = "samsung"\nresolution = "1440x3088"\ndpi = "480dpi"\n'
+                + '[region]\nlocale = "ja_JP"\ncountry = "JP"\ncountry_code = 81\n'
+                + 'timezone_offset = 32400\ntimezone_name = "Asia/Tokyo"\n'
+                + "[mpris]\nallowed_url_prefixes = []\nmax_length_seconds = 0\n",
                 encoding="utf-8",
             )
             custom_cfg = load_config(custom_path)
@@ -78,12 +79,14 @@ class ConfigAndSpoofTests(unittest.TestCase):
             self.assertEqual(custom_cfg.mpris.max_length_seconds, 0)
 
             cl = create_client(custom_cfg, apply_profile=True)
-            settings = cl.get_settings()
+            settings = cast(dict[str, object], cl.get_settings())  # pyright: ignore[reportUnknownMemberType]
             self.assertEqual(settings["locale"], "ja_JP")
             self.assertEqual(settings["country"], "JP")
             self.assertEqual(settings["country_code"], 81)
             self.assertEqual(settings["timezone_name"], "Asia/Tokyo")
-            self.assertIn("SM-S918B; dm3q; qcom; ja_JP;", settings["user_agent"])
+            user_agent = settings["user_agent"]
+            assert isinstance(user_agent, str)
+            self.assertIn("SM-S918B; dm3q; qcom; ja_JP;", user_agent)
 
     def test_invalid_jitter_range_raises_config_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -206,6 +209,7 @@ class CjkAndThaiTextTests(unittest.TestCase):
         records: list[str] = []
 
         class _Capture(logging.Handler):
+            @override
             def emit(self, record: logging.LogRecord) -> None:
                 records.append(self.format(record))
 

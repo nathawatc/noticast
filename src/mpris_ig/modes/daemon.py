@@ -7,7 +7,8 @@ import signal
 import threading
 import time
 from collections.abc import Callable
-from typing import Any
+from types import FrameType
+from typing import Protocol, runtime_checkable
 
 from mpris_ig.anti_bot import CooldownGuard, TrackDebouncer, random_jitter
 from mpris_ig.config import AppConfig
@@ -34,6 +35,17 @@ from mpris_ig.text_utils import (
 )
 
 
+class MprisBackend(Protocol):
+    """Protocol for MPRIS track readers used by DaemonRunner."""
+
+    def get_active_track(self) -> MprisTrack | None: ...
+
+
+@runtime_checkable
+class _Closable(Protocol):
+    def close(self) -> None: ...
+
+
 class DaemonRunner:
     """Stateful MPRIS-to-Instagram Music Notes daemon loop."""
 
@@ -42,29 +54,29 @@ class DaemonRunner:
         config: AppConfig,
         logger: logging.Logger,
         *,
-        backend: Any,
+        backend: MprisBackend,
         service: InstagramNotesService,
         dry_run: bool = False,
         stop_event: threading.Event | None = None,
         clock_fn: Callable[[], float] = time.monotonic,
         jitter_fn: Callable[[float, float], float] = random_jitter,
     ) -> None:
-        self._config = config
-        self._logger = logger
-        self._backend = backend
-        self._service = service
-        self._dry_run = dry_run or config.note.dry_run
-        self._stop_event = stop_event or threading.Event()
-        self._clock_fn = clock_fn
-        self._jitter_fn = jitter_fn
+        self._config: AppConfig = config
+        self._logger: logging.Logger = logger
+        self._backend: MprisBackend = backend
+        self._service: InstagramNotesService = service
+        self._dry_run: bool = dry_run or config.note.dry_run
+        self._stop_event: threading.Event = stop_event or threading.Event()
+        self._clock_fn: Callable[[], float] = clock_fn
+        self._jitter_fn: Callable[[float, float], float] = jitter_fn
 
-        self._debouncer = TrackDebouncer(config.anti_bot.debounce_seconds)
-        self._cooldown = CooldownGuard(
+        self._debouncer: TrackDebouncer = TrackDebouncer(config.anti_bot.debounce_seconds)
+        self._cooldown: CooldownGuard = CooldownGuard(
             config.anti_bot.min_post_interval_seconds,
             config.anti_bot.rate_limit_cooldown_seconds,
         )
         self._last_seen_status: str | None = None
-        self._startup_checked = not config.note.check_existing_on_startup
+        self._startup_checked: bool = not config.note.check_existing_on_startup
         self._startup_active_note: ActiveMusicNote | None = None
         self._saved_state: NoteState | None = load_note_state(config.paths.state_file)
         self._has_active_note: bool = False
@@ -140,7 +152,7 @@ class DaemonRunner:
         else:
             self._logger.info(
                 "[IG] Startup check: active Note id=%s "
-                "(style=%s, title=%r, artist=%r, cluster_id=%s).",
+                + "(style=%s, title=%r, artist=%r, cluster_id=%s).",
                 active.note.id,
                 active.note.note_style,
                 active.track_title or active.note.text,
@@ -379,7 +391,7 @@ class DaemonRunner:
         """Run the daemon polling loop until stopped or `once=True` finishes."""
         self._logger.info(
             "Starting MPRIS Music Notes daemon (poll=%.1fs, debounce=%.1fs, "
-            "jitter=%.1f-%.1fs, min_interval=%.1fs, clear_on_stop=%s, dry_run=%s).",
+            + "jitter=%.1f-%.1fs, min_interval=%.1fs, clear_on_stop=%s, dry_run=%s).",
             self._config.mpris.poll_interval_seconds,
             self._config.anti_bot.debounce_seconds,
             self._config.anti_bot.jitter_min_seconds,
@@ -410,7 +422,7 @@ def run_daemon(
     *,
     dry_run: bool = False,
     once: bool = False,
-    backend: Any = None,
+    backend: MprisBackend | None = None,
     service: InstagramNotesService | None = None,
 ) -> int:
     """Initialize dependencies, attach signal handlers, and run the daemon."""
@@ -427,7 +439,7 @@ def run_daemon(
 
     stop_event = threading.Event()
 
-    def _handle_signal(signum: int, _frame: Any) -> None:
+    def _handle_signal(signum: int, _frame: FrameType | None) -> None:
         logger.info("Received signal %s; shutting down...", signum)
         stop_event.set()
 
@@ -449,6 +461,5 @@ def run_daemon(
     finally:
         signal.signal(signal.SIGINT, prev_int)
         signal.signal(signal.SIGTERM, prev_term)
-        close_fn = getattr(backend, "close", None)
-        if callable(close_fn):
-            close_fn()
+        if isinstance(backend, _Closable):
+            backend.close()

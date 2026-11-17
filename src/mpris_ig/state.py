@@ -6,19 +6,19 @@ import contextlib
 import os
 import tempfile
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, ClassVar
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
 
 from mpris_ig.text_utils import normalize_display
 
 
-def _strip_str(value: Any) -> Any:
+def _strip_str(value: object) -> object:
     return value.strip() if isinstance(value, str) else value
 
 
 class NoteState(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     note_id: Annotated[str, BeforeValidator(_strip_str), Field(min_length=1)]
     mpris_title: Annotated[str, AfterValidator(normalize_display)] = ""

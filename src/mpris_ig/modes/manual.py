@@ -35,9 +35,9 @@ def select_track(tracks: Sequence[Track], input_fn: Callable[[str], str] = input
         starts = track.highlight_start_times_in_ms or [0]
         print(
             f"  [{idx}] {track.title} — {track.display_artist} "
-            f"(audio_cluster_id={track.audio_cluster_id}, "
-            f"audio_asset_id={track.audio_asset_id}, "
-            f"highlight_ms={starts[0]})"
+            + f"(audio_cluster_id={track.audio_cluster_id}, "
+            + f"audio_asset_id={track.audio_asset_id}, "
+            + f"highlight_ms={starts[0]})"
         )
 
     while True:
@@ -113,9 +113,9 @@ def run_manual(
         if dry_run or config.note.dry_run:
             print(
                 f"\n[Dry Run] Would post: {selected_track.title} — "
-                f"{selected_track.display_artist} "
-                f"(audio_cluster_id={selected_track.audio_cluster_id}, "
-                f"text={note_text!r}, audience={audience.name})"
+                + f"{selected_track.display_artist} "
+                + f"(audio_cluster_id={selected_track.audio_cluster_id}, "
+                + f"text={note_text!r}, audience={audience.name})"
             )
             return 0
 

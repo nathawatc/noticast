@@ -25,8 +25,8 @@ from mpris_ig.mpris import (  # noqa: E402
 
 class _FakeMessageBus:
     def __init__(self, responses: dict[str, tuple[str, list[object]]]) -> None:
-        self._responses = responses
-        self.disconnected = False
+        self._responses: dict[str, tuple[str, list[object]]] = responses
+        self.disconnected: bool = False
 
     async def call(self, msg: Message) -> Message:
         key = "ListNames" if msg.member == "ListNames" else str(msg.destination)
@@ -174,8 +174,8 @@ class MprisParsingTests(unittest.TestCase):
     def test_dbus_backend_resets_bus_on_timeout_and_reconnects(self):
         class _FlakyBus:
             def __init__(self, fail: bool) -> None:
-                self.fail = fail
-                self.disconnected = False
+                self.fail: bool = fail
+                self.disconnected: bool = False
 
             async def call(self, msg: Message) -> Message:
                 if self.fail:

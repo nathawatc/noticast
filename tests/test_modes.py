@@ -1,3 +1,4 @@
+# pyright: reportAny=false
 """Tests for setup/logout, manual mode, daemon mode, and CLI dispatch."""
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ import tempfile
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import override
 from unittest import mock
 
 _SRC_DIR = Path(__file__).resolve().parents[1] / "src"
@@ -198,12 +200,18 @@ class ManualModeTests(unittest.TestCase):
 
 
 class DaemonModeTests(unittest.TestCase):
+    _tmpdir: tempfile.TemporaryDirectory[str] | None = None
+    state_file: Path = Path()
+
+    @override
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
         self.state_file = Path(self._tmpdir.name) / "state.json"
 
+    @override
     def tearDown(self) -> None:
-        self._tmpdir.cleanup()
+        if self._tmpdir is not None:
+            self._tmpdir.cleanup()
 
     def _build_daemon_runner(
         self,
@@ -588,9 +596,9 @@ class DaemonModeTests(unittest.TestCase):
             cfg_path = tmp / "config.toml"
             cfg_path.write_text(
                 f'[paths]\nsession_file = "{session_path}"\n'
-                f'state_file = "{state_path}"\n'
-                "[note]\ncheck_existing_on_startup = false\n"
-                "[logging]\nverbose = false\n",
+                + f'state_file = "{state_path}"\n'
+                + "[note]\ncheck_existing_on_startup = false\n"
+                + "[logging]\nverbose = false\n",
                 encoding="utf-8",
             )
             mock_backend = mock.MagicMock()

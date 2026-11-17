@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, ClassVar, Literal
 
 from instagrapi.mixins.note import NoteAudience
 from pydantic import (
@@ -25,7 +25,7 @@ class ConfigError(ValueError):
     """Raised when configuration file parsing or validation fails."""
 
 
-def _lower_str(value: Any) -> Any:
+def _lower_str(value: object) -> object:
     return value.lower() if isinstance(value, str) else value
 
 
@@ -34,7 +34,7 @@ def _clean_str_tuple(value: tuple[str, ...]) -> tuple[str, ...]:
 
 
 class _FrozenConfigModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="ignore")
 
 
 class PathsConfig(_FrozenConfigModel):
@@ -52,9 +52,18 @@ class DeviceConfig(_FrozenConfigModel):
     model: str = "Pixel 8 Pro"
     cpu: str = "husky"
 
-    def to_instagrapi_dict(self) -> dict[str, Any]:
+    def to_instagrapi_dict(self) -> dict[str, int | str]:
         """Return the 8-field device dict expected by instagrapi.Client.set_device."""
-        return self.model_dump()
+        return {
+            "android_version": self.android_version,
+            "android_release": self.android_release,
+            "dpi": self.dpi,
+            "resolution": self.resolution,
+            "manufacturer": self.manufacturer,
+            "device": self.device,
+            "model": self.model,
+            "cpu": self.cpu,
+        }
 
 
 class RegionConfig(_FrozenConfigModel):
@@ -146,7 +155,7 @@ def load_config(path: Path = DEFAULT_CONFIG_FILE) -> AppConfig:
     if not path.exists():
         raise ConfigError(
             f"Configuration file '{path}' not found. "
-            "Copy config.example.toml to config.toml or pass --config."
+            + "Copy config.example.toml to config.toml or pass --config."
         )
 
     try:

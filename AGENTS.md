@@ -97,11 +97,14 @@ src/mpris_ig/
 
 ## Verification & Tooling
 
+Type checking uses `basedpyright` configured in `pyrightconfig.json`
+(`typeCheckingMode = "recommended"`).
+
 ```bash
 source .venv/bin/activate
 ruff check
-ruff format --check
-pyright
+ruff format --check main.py src tests
+basedpyright
 python -m unittest discover -s tests -v
 ```
 

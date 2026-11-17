@@ -9,7 +9,7 @@ import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol, cast
 
 from instagrapi import Client
 from instagrapi.exceptions import (
@@ -35,10 +35,10 @@ class SessionNotReadyError(RuntimeError):
 class ChallengeCodeHandler(Protocol):
     """Callable protocol matching instagrapi's challenge_code_handler signature."""
 
-    def __call__(self, username: str, choice: Any = None) -> str: ...
+    def __call__(self, username: str, choice: object = None) -> str: ...
 
 
-def interactive_challenge_handler(username: str, choice: Any = None) -> str:
+def interactive_challenge_handler(username: str, choice: object = None) -> str:
     """Prompt the user for an Email/SMS challenge verification code."""
     print(f"\n[Challenge] Instagram requested verification for '{username}' via {choice}.")
     return input("Enter challenge verification code (leave blank to abort): ").strip()
@@ -53,18 +53,21 @@ def apply_device_and_region(
     cl.set_locale(region_cfg.locale)
     cl.set_country(region_cfg.country.upper())
     cl.set_country_code(region_cfg.country_code)
-    cl.set_timezone_offset(region_cfg.timezone_offset, timezone_name=region_cfg.timezone_name)
-    cl.set_device(device_cfg.to_instagrapi_dict())
-    cl.private.headers.update(cl.base_headers)
+    cl.set_timezone_offset(  # pyright: ignore[reportUnknownMemberType]
+        region_cfg.timezone_offset, timezone_name=region_cfg.timezone_name
+    )
+    cl.set_device(device_cfg.to_instagrapi_dict())  # pyright: ignore[reportUnknownMemberType]
+    base_headers = cast(dict[str, str], cl.base_headers)
+    cl.private.headers.update(base_headers)
 
 
 def _load_session_settings(cl: Client, session_path: Path) -> None:
     try:
-        cl.load_settings(session_path)
+        cl.load_settings(session_path)  # pyright: ignore[reportUnknownMemberType]
     except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
         raise SessionNotReadyError(
             f"Session file '{session_path}' is unreadable or corrupted ({exc}). "
-            "Re-run `./.venv/bin/python main.py setup`."
+            + "Re-run `./.venv/bin/python main.py setup`."
         ) from exc
 
 
@@ -98,7 +101,7 @@ def load_authenticated_client(config: AppConfig) -> Client:
     if not session_path.exists():
         raise SessionNotReadyError(
             f"Session file '{session_path}' not found. "
-            "Run `./.venv/bin/python main.py setup` first."
+            + "Run `./.venv/bin/python main.py setup` first."
         )
 
     cl = Client(with_challenge_flow=False)
@@ -107,7 +110,7 @@ def load_authenticated_client(config: AppConfig) -> Client:
     if not cl.user_id:
         raise SessionNotReadyError(
             f"'{session_path}' does not contain an authenticated user_id. "
-            "Re-run `./.venv/bin/python main.py setup`."
+            + "Re-run `./.venv/bin/python main.py setup`."
         )
     return cl
 
@@ -170,13 +173,13 @@ def setup_session_interactive(
     if apply_profile:
         print(
             f"Device profile: {config.device.manufacturer} {config.device.model} "
-            f"({config.device.device}) | Android {config.device.android_release} | "
-            f"{config.device.resolution} {config.device.dpi}"
+            + f"({config.device.device}) | Android {config.device.android_release} | "
+            + f"{config.device.resolution} {config.device.dpi}"
         )
         print(
             f"Region profile: locale={config.region.locale}, "
-            f"country={config.region.country}, +{config.region.country_code}, "
-            f"{config.region.timezone_name} ({config.region.timezone_offset:+}s)"
+            + f"country={config.region.country}, +{config.region.country_code}, "
+            + f"{config.region.timezone_name} ({config.region.timezone_offset:+}s)"
         )
 
     username = input_fn("Instagram username: ").strip()
@@ -214,7 +217,7 @@ def setup_session_interactive(
         _print_sanitized_error_details(cl)
         print(
             "Approve the login attempt in the official Instagram app/web, "
-            "then re-run `./.venv/bin/python main.py setup`.",
+            + "then re-run `./.venv/bin/python main.py setup`.",
             file=sys.stderr,
         )
         return 1

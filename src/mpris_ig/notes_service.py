@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import TypeVar, cast
 
 import requests
 from instagrapi import Client
@@ -55,17 +55,18 @@ class ActiveMusicNote:
     artist_name: str = ""
 
 
-def _find_audio_asset_dict(obj: Any) -> dict[str, Any] | None:
+def _find_audio_asset_dict(obj: object) -> dict[str, object] | None:
     """Recursively locate a music asset dictionary containing audio_cluster_id."""
     if isinstance(obj, dict):
-        if obj.get("audio_cluster_id") is not None:
-            return obj
-        for val in obj.values():
+        mapping = cast(dict[str, object], obj)
+        if mapping.get("audio_cluster_id") is not None:
+            return mapping
+        for val in mapping.values():
             found = _find_audio_asset_dict(val)
             if found is not None:
                 return found
     elif isinstance(obj, list):
-        for item in obj:
+        for item in cast(list[object], obj):
             found = _find_audio_asset_dict(item)
             if found is not None:
                 return found
@@ -73,24 +74,29 @@ def _find_audio_asset_dict(obj: Any) -> dict[str, Any] | None:
 
 
 def _extract_note_dict_for_user(
-    last_json: dict[str, Any] | None,
+    last_json: Mapping[str, object] | None,
     user_id: int | str,
     note_id: str,
-) -> dict[str, Any] | None:
-    if not isinstance(last_json, dict):
+) -> dict[str, object] | None:
+    if not isinstance(last_json, Mapping):
         return None
     data = last_json.get("data")
     if not isinstance(data, dict):
         return None
-    for payload in data.values():
+    for payload in cast(dict[str, object], data).values():
         if not isinstance(payload, dict) or "inbox_tray_items" not in payload:
             continue
-        for item in payload.get("inbox_tray_items") or []:
-            if not isinstance(item, dict):
+        raw_items = cast(dict[str, object], payload).get("inbox_tray_items")
+        if not isinstance(raw_items, list):
+            continue
+        for raw_item in cast(list[object], raw_items):
+            if not isinstance(raw_item, dict):
                 continue
-            note_dict = item.get("note_dict")
-            if not isinstance(note_dict, dict):
+            item = cast(dict[str, object], raw_item)
+            raw_note = item.get("note_dict")
+            if not isinstance(raw_note, dict):
                 continue
+            note_dict = cast(dict[str, object], raw_note)
             item_id = str(item.get("inbox_tray_item_id") or note_dict.get("note_id") or "")
             author_id = str(note_dict.get("author_id") or "")
             if (note_id and item_id == str(note_id)) or (user_id and author_id == str(user_id)):
@@ -100,7 +106,7 @@ def _extract_note_dict_for_user(
 
 def extract_active_music_note(
     notes: list[Note],
-    last_json: dict[str, Any] | None,
+    last_json: Mapping[str, object] | None,
     user_id: int | str,
 ) -> ActiveMusicNote | None:
     """Extract the user's active Note plus any music metadata from InboxTray JSON."""
@@ -126,15 +132,14 @@ def extract_active_music_note(
 def _is_login_error(cl: Client, exc: Exception) -> bool:
     if isinstance(exc, (LoginRequired, ClientLoginRequired, ClientUnauthorizedError)):
         return True
-    resp = getattr(cl, "last_response", None)
+    resp: object = getattr(cl, "last_response", None)
     if getattr(resp, "status_code", None) == 401:
         return True
-    last_json = getattr(cl, "last_json", None)
-    if (
-        isinstance(last_json, dict)
-        and str(last_json.get("message", "")).lower() == "login_required"
-    ):
-        return True
+    raw_last_json: object = getattr(cl, "last_json", None)
+    if isinstance(raw_last_json, dict):
+        last_json = cast(dict[str, object], raw_last_json)
+        if str(last_json.get("message", "")).lower() == "login_required":
+            return True
     return "login_required" in str(exc).lower()
 
 
@@ -142,8 +147,8 @@ class InstagramNotesService:
     """High-level Music Notes operations with error classification and debug logging."""
 
     def __init__(self, cl: Client, logger: logging.Logger) -> None:
-        self._cl = cl
-        self._logger = logger
+        self._cl: Client = cl
+        self._logger: logging.Logger = logger
 
     def _call(self, label: str, fn: Callable[[], _T]) -> _T:
         try:
@@ -165,7 +170,7 @@ class InstagramNotesService:
             if _is_login_error(self._cl, exc):
                 raise SessionExpiredError(
                     "Session expired or invalid (LoginRequired). "
-                    "Re-run `./.venv/bin/python main.py setup`."
+                    + "Re-run `./.venv/bin/python main.py setup`."
                 ) from exc
             raise NotesApiError(f"{exc.__class__.__name__}: {exc}") from exc
         except (requests.exceptions.RequestException, KeyError, AssertionError, ValueError) as exc:
@@ -223,7 +228,10 @@ class InstagramNotesService:
     def get_active_music_note(self) -> ActiveMusicNote | None:
         """Fetch Inbox Tray notes and return the active personal note + music metadata."""
         notes = self._call("cl.get_notes() [startup check]", self._cl.get_notes)
-        last_json = getattr(self._cl, "last_json", None)
+        raw_last_json: object = getattr(self._cl, "last_json", None)
+        last_json = (
+            cast(dict[str, object], raw_last_json) if isinstance(raw_last_json, dict) else None
+        )
         return extract_active_music_note(notes, last_json, self._cl.user_id)
 
     def delete_existing_user_notes(self) -> list[Note]:
@@ -256,7 +264,7 @@ class InstagramNotesService:
         """Create a Music Note via GraphQL (instagrapi acquires alacorn_session_id)."""
         return self._call(
             f"cl.create_music_note({track.title!r})",
-            lambda: self._cl.create_music_note(
+            lambda: self._cl.create_music_note(  # pyright: ignore[reportUnknownMemberType]
                 track=track,
                 text=text,
                 audience=audience,

@@ -14,6 +14,19 @@ from mpris_ig.modes.manual import run_manual
 from mpris_ig.session import logout_session, setup_session_interactive
 
 
+class _CliNamespace(argparse.Namespace):
+    config: Path = DEFAULT_CONFIG_FILE
+    verbose: bool = False
+    quiet: bool = False
+    command: str = ""
+    keep_device: bool = False
+    force: bool = False
+    dry_run: bool = False
+    once: bool = False
+    poll_interval: float | None = None
+    debounce: float | None = None
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build top-level CLI parser with subcommands."""
     parser = argparse.ArgumentParser(
@@ -99,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _apply_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConfig:
+def _apply_cli_overrides(config: AppConfig, args: _CliNamespace) -> AppConfig:
     updated = config
     if args.command == "daemon":
         if args.poll_interval is not None:
@@ -127,7 +140,7 @@ def _apply_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConf
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Parse arguments, load config, configure logging, and dispatch subcommand."""
-    args = build_parser().parse_args(argv)
+    args = build_parser().parse_args(argv, namespace=_CliNamespace())
 
     try:
         config = load_config(args.config)
