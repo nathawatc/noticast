@@ -12,7 +12,7 @@ from instagrapi import Client
 
 def configure_logging(*, verbose: bool = False) -> logging.Logger:
     """Configure application logger with INFO or DEBUG verbosity."""
-    logger = logging.getLogger("mpris_ig")
+    logger = logging.getLogger("noticast")
     logger.setLevel(logging.DEBUG if verbose else logging.INFO)
     logger.propagate = False
 

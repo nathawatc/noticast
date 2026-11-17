@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-noticast = "mpris_ig.cli:main"
+noticast = "noticast.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

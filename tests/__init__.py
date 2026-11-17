@@ -1,1 +1,1 @@
-"""Unit tests for mpris_ig."""
+"""Unit tests for noticast."""

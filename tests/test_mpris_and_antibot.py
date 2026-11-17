@@ -18,9 +18,9 @@ if str(_SRC_DIR) not in sys.path:
 
 from dbus_fast import Message, MessageType, Variant  # noqa: E402
 
-from mpris_ig.anti_bot import CooldownGuard, TrackDebouncer  # noqa: E402
-from mpris_ig.config import MprisConfig  # noqa: E402
-from mpris_ig.mpris import (  # noqa: E402
+from noticast.anti_bot import CooldownGuard, TrackDebouncer  # noqa: E402
+from noticast.config import MprisConfig  # noqa: E402
+from noticast.mpris import (  # noqa: E402
     DbusMprisBackend,
     MprisTrack,
     parse_mpris_properties,

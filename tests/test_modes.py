@@ -22,27 +22,27 @@ from instagrapi.exceptions import LoginRequired, PleaseWaitFewMinutes, TwoFactor
 from instagrapi.mixins.note import NoteAudience  # noqa: E402
 from instagrapi.types import Note, Track, UserShort  # noqa: E402
 
-from mpris_ig.cli import main as cli_main  # noqa: E402
-from mpris_ig.cli import run_clear  # noqa: E402
-from mpris_ig.config import (  # noqa: E402
+from noticast.cli import main as cli_main  # noqa: E402
+from noticast.cli import run_clear  # noqa: E402
+from noticast.config import (  # noqa: E402
     AntiBotConfig,
     AppConfig,
     MprisConfig,
     NoteConfig,
     PathsConfig,
 )
-from mpris_ig.modes.daemon import DaemonRunner  # noqa: E402
-from mpris_ig.modes.manual import run_manual  # noqa: E402
-from mpris_ig.mpris import MprisTrack  # noqa: E402
-from mpris_ig.notes_service import InstagramNotesService, NotesApiError  # noqa: E402
-from mpris_ig.session import (  # noqa: E402
+from noticast.modes.daemon import DaemonRunner  # noqa: E402
+from noticast.modes.manual import run_manual  # noqa: E402
+from noticast.mpris import MprisTrack  # noqa: E402
+from noticast.notes_service import InstagramNotesService, NotesApiError  # noqa: E402
+from noticast.session import (  # noqa: E402
     SessionNotReadyError,
     authenticate_and_save,
     load_authenticated_client,
     logout_session,
     setup_session_interactive,
 )
-from mpris_ig.state import NoteState, load_note_state, save_note_state  # noqa: E402
+from noticast.state import NoteState, load_note_state, save_note_state  # noqa: E402
 
 
 def _track(title: str = "แค่มีเธอ", artist: str = "Three Man Down", idx: int = 1) -> Track:
@@ -170,7 +170,7 @@ class SessionFlowTests(unittest.TestCase):
 
             # Answering 'y' without --keep-device must NOT overwrite saved device/region.
             answers = iter(["y", "alice"])
-            with mock.patch("mpris_ig.session.create_client", return_value=mock_cl) as create_fn:
+            with mock.patch("noticast.session.create_client", return_value=mock_cl) as create_fn:
                 rc = setup_session_interactive(
                     cfg,
                     input_fn=lambda _: next(answers),
@@ -185,7 +185,7 @@ class SessionFlowTests(unittest.TestCase):
             )
 
             # Passing --keep-device skips prompt and preserves saved device/region.
-            with mock.patch("mpris_ig.session.create_client", return_value=mock_cl) as create_fn:
+            with mock.patch("noticast.session.create_client", return_value=mock_cl) as create_fn:
                 rc_keep = setup_session_interactive(
                     cfg,
                     keep_device=True,
@@ -845,7 +845,7 @@ class DaemonModeTests(unittest.TestCase):
             mock_backend = mock.MagicMock()
             mock_backend.get_active_track.return_value = None
 
-            with mock.patch("mpris_ig.modes.daemon.DbusMprisBackend", return_value=mock_backend):
+            with mock.patch("noticast.modes.daemon.DbusMprisBackend", return_value=mock_backend):
                 rc = cli_main(
                     ["--config", str(cfg_path), "--verbose", "daemon", "--dry-run", "--once"]
                 )
@@ -855,10 +855,10 @@ class DaemonModeTests(unittest.TestCase):
             )
             self.assertEqual(cli_main(["--config", str(cfg_path), "daemon", "--debounce", "-1"]), 1)
 
-            with mock.patch("mpris_ig.cli.run_manual", side_effect=EOFError):
+            with mock.patch("noticast.cli.run_manual", side_effect=EOFError):
                 self.assertEqual(cli_main(["--config", str(cfg_path), "manual"]), 130)
             with mock.patch(
-                "mpris_ig.cli.setup_session_interactive", side_effect=KeyboardInterrupt
+                "noticast.cli.setup_session_interactive", side_effect=KeyboardInterrupt
             ):
                 self.assertEqual(cli_main(["--config", str(cfg_path), "setup"]), 130)
 

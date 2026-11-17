@@ -10,7 +10,7 @@ from typing import Annotated, ClassVar
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
 
-from mpris_ig.text_utils import normalize_display
+from noticast.text_utils import normalize_display
 
 
 def _strip_str(value: object) -> object:

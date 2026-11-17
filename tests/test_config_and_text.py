@@ -17,10 +17,10 @@ if str(_SRC_DIR) not in sys.path:
 from instagrapi.mixins.note import NoteAudience  # noqa: E402
 from instagrapi.types import Track  # noqa: E402
 
-from mpris_ig.config import ConfigError, load_config  # noqa: E402
-from mpris_ig.logging_utils import log_http_debug  # noqa: E402
-from mpris_ig.session import create_client  # noqa: E402
-from mpris_ig.text_utils import (  # noqa: E402
+from noticast.config import ConfigError, load_config  # noqa: E402
+from noticast.logging_utils import log_http_debug  # noqa: E402
+from noticast.session import create_client  # noqa: E402
+from noticast.text_utils import (  # noqa: E402
     build_search_queries,
     format_note_text,
     is_meaningful_substring,

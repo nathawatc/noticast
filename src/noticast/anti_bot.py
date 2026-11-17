@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 import time
 
-from mpris_ig.mpris import MprisTrack
+from noticast.mpris import MprisTrack
 
 DEFAULT_NOTE_TTL_SECONDS = 86_400.0
 

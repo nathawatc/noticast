@@ -26,8 +26,8 @@ from instagrapi.exceptions import (
     TwoFactorRequired,
 )
 
-from mpris_ig.config import AppConfig, DeviceConfig, RegionConfig
-from mpris_ig.logging_utils import sanitize_last_json
+from noticast.config import AppConfig, DeviceConfig, RegionConfig
+from noticast.logging_utils import sanitize_last_json
 
 
 class SessionNotReadyError(RuntimeError):

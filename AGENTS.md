@@ -9,12 +9,12 @@ Technical reference and contributor/agent guidelines for **noticast** (`v0.1.0`)
   (`.venv`). Never install packages globally.
 - **Privacy Rule**: Never commit `session.json`, `config.toml`,
   `.note_state.json`, or personal device identifiers / real timezone / locale
-  defaults into `config.example.toml`, `src/mpris_ig/config.py`, or `tests/`.
+  defaults into `config.example.toml`, `src/noticast/config.py`, or `tests/`.
 
-## Architecture (`src/mpris_ig/`)
+## Architecture (`src/noticast/`)
 
 ```text
-main.py # Launcher adding src/ to sys.path src/mpris_ig/ ├── cli.py # Argument
+main.py # Launcher adding src/ to sys.path src/noticast/ ├── cli.py # Argument
 parsing, --config / -v / -q, clear, dispatch ├── config.py # Pydantic schema +
 tomllib loader + path resolution ├── logging_utils.py # INFO/DEBUG logger +
 UTF-8 HTTP/JSON debug output ├── text_utils.py # NFC/NFKC normalization,

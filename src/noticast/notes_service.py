@@ -24,8 +24,8 @@ from instagrapi.exceptions import (
 from instagrapi.mixins.note import NoteAudience
 from instagrapi.types import Note, Track
 
-from mpris_ig.logging_utils import log_http_debug
-from mpris_ig.text_utils import (
+from noticast.logging_utils import log_http_debug
+from noticast.text_utils import (
     build_search_queries,
     normalize_display,
     normalize_match_key,

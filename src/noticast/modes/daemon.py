@@ -10,14 +10,14 @@ from collections.abc import Callable
 from types import FrameType
 from typing import Protocol, runtime_checkable
 
-from mpris_ig.anti_bot import CooldownGuard, TrackDebouncer, random_jitter
-from mpris_ig.config import AppConfig
-from mpris_ig.mpris import (
+from noticast.anti_bot import CooldownGuard, TrackDebouncer, random_jitter
+from noticast.config import AppConfig
+from noticast.mpris import (
     DbusMprisBackend,
     MprisBackendError,
     MprisTrack,
 )
-from mpris_ig.notes_service import (
+from noticast.notes_service import (
     ActiveMusicNote,
     CheckpointRequiredError,
     InstagramNotesService,
@@ -25,9 +25,9 @@ from mpris_ig.notes_service import (
     RateLimitedError,
     SessionExpiredError,
 )
-from mpris_ig.session import SessionNotReadyError, load_authenticated_client
-from mpris_ig.state import NoteState, load_note_state, save_note_state
-from mpris_ig.text_utils import (
+from noticast.session import SessionNotReadyError, load_authenticated_client
+from noticast.state import NoteState, load_note_state, save_note_state
+from noticast.text_utils import (
     format_note_text,
     is_meaningful_substring,
     normalize_match_key,

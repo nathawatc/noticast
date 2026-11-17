@@ -8,18 +8,18 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from mpris_ig.config import DEFAULT_CONFIG_FILE, AppConfig, ConfigError, load_config
-from mpris_ig.logging_utils import configure_logging
-from mpris_ig.modes.daemon import run_daemon
-from mpris_ig.modes.manual import run_manual
-from mpris_ig.notes_service import (
+from noticast.config import DEFAULT_CONFIG_FILE, AppConfig, ConfigError, load_config
+from noticast.logging_utils import configure_logging
+from noticast.modes.daemon import run_daemon
+from noticast.modes.manual import run_manual
+from noticast.notes_service import (
     CheckpointRequiredError,
     InstagramNotesService,
     NotesApiError,
     RateLimitedError,
     SessionExpiredError,
 )
-from mpris_ig.session import (
+from noticast.session import (
     SessionNotReadyError,
     load_authenticated_client,
     logout_session,

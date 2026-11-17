@@ -13,8 +13,8 @@ from typing import Protocol, cast, runtime_checkable
 from dbus_fast import DBusError, Message, MessageType, unpack_variants
 from dbus_fast.aio import MessageBus
 
-from mpris_ig.config import MprisConfig
-from mpris_ig.text_utils import normalize_display
+from noticast.config import MprisConfig
+from noticast.text_utils import normalize_display
 
 MPRIS_PREFIX = "org.mpris.MediaPlayer2."
 MPRIS_OBJECT_PATH = "/org/mpris/MediaPlayer2"

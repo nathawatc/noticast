@@ -9,17 +9,17 @@ from collections.abc import Callable, Sequence
 from instagrapi.mixins.note import NoteAudience
 from instagrapi.types import Track
 
-from mpris_ig.config import AppConfig
-from mpris_ig.notes_service import (
+from noticast.config import AppConfig
+from noticast.notes_service import (
     CheckpointRequiredError,
     InstagramNotesService,
     NotesApiError,
     RateLimitedError,
     SessionExpiredError,
 )
-from mpris_ig.session import SessionNotReadyError, load_authenticated_client
-from mpris_ig.state import NoteState, save_note_state
-from mpris_ig.text_utils import MAX_NOTE_TEXT_LENGTH, normalize_display
+from noticast.session import SessionNotReadyError, load_authenticated_client
+from noticast.state import NoteState, save_note_state
+from noticast.text_utils import MAX_NOTE_TEXT_LENGTH, normalize_display
 
 TOP_TRACKS_LIMIT = 5
 
