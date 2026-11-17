@@ -59,8 +59,9 @@ src/noticast/
 
 - **MPRIS Backend**: `DbusMprisBackend` queries the session bus natively via
   `dbus-fast` (`ListNames` + `Properties.GetAll` on
-  `org.mpris.MediaPlayer2.Player`), preserving full UTF-8 metadata and
-  respecting `allowed_players` order before alphabetical fallback.
+  `org.mpris.MediaPlayer2.Player`), preserving full UTF-8 metadata,
+  respecting `allowed_players` order before alphabetical fallback, and waking
+  on `PropertiesChanged` / `NameOwnerChanged` signals with polling fallback.
 - **Track Filters**:
   - `allowed_url_prefixes`: Case-insensitive prefix match against `xesam:url`
     (`[]` disables).
@@ -109,9 +110,6 @@ rumdl check
 
 ## Known Limitations / Improvement Ideas
 
-- Polling via `DbusMprisBackend` over a persistent `dbus-fast` connection works
-  reliably, and could be complemented with an event-driven `PropertiesChanged`
-  signal subscription in the future.
 - `cl.get_notes()` (`Note` Pydantic model in `instagrapi 3.2.15`) strips music
   fields; `extract_active_music_note()` defensively scans `cl.last_json` and may
   need adjustment if Instagram changes the `InboxTrayRequest` GraphQL response
