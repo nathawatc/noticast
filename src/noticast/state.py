@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import contextlib
 import os
+import stat
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, ClassVar
 
@@ -38,17 +40,29 @@ def load_note_state(path: Path) -> NoteState | None:
         return None
 
 
-def save_note_state(path: Path, state: NoteState) -> None:
-    """Atomically persist NoteState as UTF-8 JSON."""
+def atomic_replace_via_temp(
+    path: Path,
+    write_fn: Callable[[Path], object],
+    *,
+    mode: int = stat.S_IRUSR | stat.S_IWUSR,
+) -> None:
+    """Write via a restricted temp file in `path.parent` and atomically swap into place."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = state.model_dump_json(indent=2) + "\n"
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    os.close(fd)
     tmp_path = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(payload)
+        with contextlib.suppress(OSError):
+            os.chmod(tmp_path, mode)
+        write_fn(tmp_path)
         os.replace(tmp_path, path)
     except BaseException:
         with contextlib.suppress(OSError):
             tmp_path.unlink(missing_ok=True)
         raise
+
+
+def save_note_state(path: Path, state: NoteState) -> None:
+    """Atomically persist NoteState as UTF-8 JSON."""
+    payload = state.model_dump_json(indent=2) + "\n"
+    atomic_replace_via_temp(path, lambda tmp: tmp.write_text(payload, encoding="utf-8"))

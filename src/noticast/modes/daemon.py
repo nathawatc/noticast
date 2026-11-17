@@ -24,14 +24,16 @@ from noticast.notes_service import (
     NotesApiError,
     RateLimitedError,
     SessionExpiredError,
+    open_notes_service,
+    save_track_note_state,
 )
-from noticast.session import SessionNotReadyError, load_authenticated_client
-from noticast.state import NoteState, load_note_state, save_note_state
+from noticast.session import SessionNotReadyError
+from noticast.state import NoteState, load_note_state
 from noticast.text_utils import (
     format_note_text,
-    is_meaningful_substring,
     normalize_match_key,
     strip_title_noise,
+    tracks_match_metadata,
 )
 
 
@@ -87,25 +89,14 @@ class DaemonRunner:
         if active is None or active.note.note_style != 1:
             return False
 
+        if active.track_title and tracks_match_metadata(
+            active.track_title, active.artist_name, track.title, track.artist_display
+        ):
+            return True
+
         goal_title = normalize_match_key(strip_title_noise(track.title) or track.title)
         raw_title = normalize_match_key(track.title)
         goal_artist = normalize_match_key(track.artist_display)
-
-        if active.track_title:
-            note_title = normalize_match_key(active.track_title)
-            note_artist = normalize_match_key(active.artist_name)
-            title_ok = note_title in (goal_title, raw_title) or (
-                is_meaningful_substring(note_title, goal_title)
-                or is_meaningful_substring(note_title, raw_title)
-            )
-            artist_ok = (
-                not goal_artist
-                or not note_artist
-                or note_artist == goal_artist
-                or is_meaningful_substring(note_artist, goal_artist)
-            )
-            if title_ok and artist_ok:
-                return True
 
         state = self._saved_state
         if state is not None and state.note_id == str(active.note.id):
@@ -312,16 +303,12 @@ class DaemonRunner:
                 self._debouncer.mark_posted(confirmed, now=now)
                 self._has_active_note = True
                 self._startup_active_note = None
-                save_note_state(
+                save_track_note_state(
                     self._config.paths.state_file,
-                    NoteState(
-                        note_id=active_note_id,
-                        mpris_title=confirmed.title,
-                        mpris_artist=confirmed.artist_display,
-                        ig_title=ig_track.title,
-                        ig_artist=ig_track.display_artist,
-                        audio_cluster_id=str(ig_track.audio_cluster_id),
-                    ),
+                    note_id=active_note_id,
+                    track=ig_track,
+                    mpris_title=confirmed.title,
+                    mpris_artist=confirmed.artist_display,
                 )
                 return None
 
@@ -358,16 +345,12 @@ class DaemonRunner:
             self._has_active_note = True
             self._cooldown.record_post(now=post_now)
             self._startup_active_note = None
-            save_note_state(
+            save_track_note_state(
                 self._config.paths.state_file,
-                NoteState(
-                    note_id=str(note.id),
-                    mpris_title=confirmed.title,
-                    mpris_artist=confirmed.artist_display,
-                    ig_title=ig_track.title,
-                    ig_artist=ig_track.display_artist,
-                    audio_cluster_id=str(ig_track.audio_cluster_id),
-                ),
+                note_id=str(note.id),
+                track=ig_track,
+                mpris_title=confirmed.title,
+                mpris_artist=confirmed.artist_display,
             )
             self._logger.info(
                 "[IG] Posted Music Note id=%s: %s — %s (match=%.1f, cluster_id=%s)",
@@ -440,9 +423,7 @@ def run_daemon(
     """Initialize dependencies, attach signal handlers, and run the daemon."""
     try:
         if service is None:
-            cl = load_authenticated_client(config)
-            logger.info("Loaded session for user_id=%s (no login performed).", cl.user_id)
-            service = InstagramNotesService(cl, logger)
+            service = open_notes_service(config, logger)
         if backend is None:
             backend = DbusMprisBackend(config.mpris, logger)
     except (SessionNotReadyError, MprisBackendError) as exc:

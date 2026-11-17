@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import contextlib
 import getpass
 import json
-import os
-import stat
 import sys
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol, cast
@@ -28,6 +24,9 @@ from instagrapi.exceptions import (
 
 from noticast.config import AppConfig, DeviceConfig, RegionConfig
 from noticast.logging_utils import sanitize_last_json
+from noticast.state import atomic_replace_via_temp
+
+SETUP_COMMAND_HINT = "`noticast setup` (or `python main.py setup`)"
 
 
 class SessionNotReadyError(RuntimeError):
@@ -69,7 +68,7 @@ def _load_session_settings(cl: Client, session_path: Path) -> None:
     except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
         raise SessionNotReadyError(
             f"Session file '{session_path}' is unreadable or corrupted ({exc}). "
-            + "Re-run `noticast setup` (or `python main.py setup`)."
+            + f"Re-run {SETUP_COMMAND_HINT}."
         ) from exc
 
 
@@ -102,8 +101,7 @@ def load_authenticated_client(config: AppConfig) -> Client:
     session_path = config.paths.session_file
     if not session_path.exists():
         raise SessionNotReadyError(
-            f"Session file '{session_path}' not found. "
-            + "Run `noticast setup` (or `python main.py setup`) first."
+            f"Session file '{session_path}' not found. Run {SETUP_COMMAND_HINT} first."
         )
 
     cl = Client(with_challenge_flow=False)
@@ -112,7 +110,7 @@ def load_authenticated_client(config: AppConfig) -> Client:
     if not cl.user_id:
         raise SessionNotReadyError(
             f"'{session_path}' does not contain an authenticated user_id. "
-            + "Re-run `noticast setup` (or `python main.py setup`)."
+            + f"Re-run {SETUP_COMMAND_HINT}."
         )
     return cl
 
@@ -137,23 +135,7 @@ def authenticate_and_save(
     if not logged_in:
         raise RuntimeError("Instagram login returned False without raising an exception.")
 
-    session_path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        dir=session_path.parent,
-        prefix=f".{session_path.name}.",
-        suffix=".tmp",
-    )
-    os.close(fd)
-    tmp_path = Path(tmp_name)
-    try:
-        with contextlib.suppress(OSError):
-            os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR)
-        cl.dump_settings(tmp_path)
-        os.replace(tmp_path, session_path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            tmp_path.unlink(missing_ok=True)
-        raise
+    atomic_replace_via_temp(session_path, lambda tmp: cl.dump_settings(tmp))
     return session_path
 
 
@@ -235,7 +217,7 @@ def setup_session_interactive(
         _print_sanitized_error_details(cl)
         print(
             "Approve the login attempt in the official Instagram app/web, "
-            + "then re-run `noticast setup` (or `python main.py setup`).",
+            + f"then re-run {SETUP_COMMAND_HINT}.",
             file=sys.stderr,
         )
         return 1

@@ -11,14 +11,14 @@ from instagrapi.types import Track
 
 from noticast.config import AppConfig
 from noticast.notes_service import (
-    CheckpointRequiredError,
     InstagramNotesService,
     NotesApiError,
+    NotesServiceError,
     RateLimitedError,
-    SessionExpiredError,
+    open_notes_service,
+    save_track_note_state,
 )
-from noticast.session import SessionNotReadyError, load_authenticated_client
-from noticast.state import NoteState, save_note_state
+from noticast.session import SessionNotReadyError
 from noticast.text_utils import MAX_NOTE_TEXT_LENGTH, normalize_display
 
 TOP_TRACKS_LIMIT = 5
@@ -86,12 +86,11 @@ def run_manual(
 ) -> int:
     """Run interactive manual Music Note search & post flow."""
     try:
-        if service_factory is not None:
-            service = service_factory(config, logger)
-        else:
-            cl = load_authenticated_client(config)
-            logger.info("Loaded session for user_id=%s (no login performed).", cl.user_id)
-            service = InstagramNotesService(cl, logger)
+        service = (
+            service_factory(config, logger)
+            if service_factory is not None
+            else open_notes_service(config, logger)
+        )
     except SessionNotReadyError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
@@ -125,25 +124,19 @@ def run_manual(
             audience=audience,
             delete_before_post=config.note.delete_before_post,
         )
-        save_note_state(
+        save_track_note_state(
             config.paths.state_file,
-            NoteState(
-                note_id=str(created_note.id),
-                mpris_title=selected_track.title,
-                mpris_artist=selected_track.display_artist,
-                ig_title=selected_track.title,
-                ig_artist=selected_track.display_artist,
-                audio_cluster_id=str(selected_track.audio_cluster_id),
-            ),
+            note_id=str(created_note.id),
+            track=selected_track,
         )
-    except (SessionExpiredError, CheckpointRequiredError) as exc:
-        print(f"\nError: {exc}", file=sys.stderr)
-        return 1
     except RateLimitedError as exc:
         print(f"\nRate limited by Instagram: {exc}", file=sys.stderr)
         return 1
     except NotesApiError as exc:
         print(f"\nInstagram API error: {exc}", file=sys.stderr)
+        return 1
+    except NotesServiceError as exc:
+        print(f"\nError: {exc}", file=sys.stderr)
         return 1
 
     print("\nMusic Note posted successfully!")

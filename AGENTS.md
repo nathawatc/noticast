@@ -14,15 +14,19 @@ Technical reference and contributor/agent guidelines for **noticast** (`v0.1.0`)
 ## Architecture (`src/noticast/`)
 
 ```text
-main.py # Launcher adding src/ to sys.path src/noticast/ ├── cli.py # Argument
-parsing, --config / -v / -q, clear, dispatch ├── config.py # Pydantic schema +
-tomllib loader + path resolution ├── logging_utils.py # INFO/DEBUG logger +
-UTF-8 HTTP/JSON debug output ├── text_utils.py # NFC/NFKC normalization,
-rapidfuzz scoring, grapheme 60-char ├── state.py # .note_state.json cache
-(note_id + track info) ├── session.py # Client factory, device/region spoof,
-2FA, logout ├── notes_service.py # instagrapi 3.2.15 wrapper, match cache, error
-handling ├── mpris.py # DbusMprisBackend (dbus-fast) with player priority ├──
-anti_bot.py # TrackDebouncer (24h TTL), CooldownGuard, random_jitter └── modes/
+main.py                    # Launcher adding src/ to sys.path
+src/noticast/
+├── cli.py                 # Argument parsing, --config / -v / -q, dispatch
+├── config.py              # Pydantic schema + tomllib loader + path resolution
+├── logging_utils.py       # INFO/DEBUG logger + UTF-8 HTTP/JSON debug output
+├── text_utils.py          # NFC/NFKC normalization, rapidfuzz, grapheme 60-char
+├── state.py               # .note_state.json cache + atomic temp-file writer
+├── session.py             # Client factory, device/region spoof, 2FA, logout
+├── notes_service.py       # instagrapi 3.2.15 wrapper, match cache, error handling
+├── mpris.py               # DbusMprisBackend (dbus-fast) with player priority
+├── anti_bot.py            # TrackDebouncer (24h TTL), CooldownGuard, random_jitter
+└── modes/
+    ├── clear.py           # One-shot Note + state cleanup
     ├── manual.py          # Mode 1: interactive search + top-5 pick + post
     └── daemon.py          # Mode 2: signal-safe MPRIS loop + startup sync
 ```

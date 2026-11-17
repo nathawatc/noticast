@@ -46,6 +46,7 @@ python main.py daemon
 python main.py clear
 python main.py logout
 
-# Optional: -v / --verbose for debug output (or install `noticast` via `pip install -e .`)
+# Optional: -v / --verbose for debug output
+# (or install `noticast` globally inside your venv via `pip install -e .`)
 python main.py -v daemon --dry-run
 ```

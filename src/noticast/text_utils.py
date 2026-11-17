@@ -180,3 +180,33 @@ def score_track_match(track: Track, target_title: str, target_artist: str = "") 
         score += 20.0
 
     return round(score, 2)
+
+
+def tracks_match_metadata(
+    cand_title: str,
+    cand_artist: str,
+    target_title: str,
+    target_artist: str = "",
+) -> bool:
+    """Return True when candidate title/artist loosely match target track metadata."""
+    norm_cand_title = normalize_match_key(cand_title)
+    if not norm_cand_title:
+        return False
+
+    goal_title = normalize_match_key(strip_title_noise(target_title) or target_title)
+    raw_title = normalize_match_key(target_title)
+    title_ok = norm_cand_title in (goal_title, raw_title) or (
+        is_meaningful_substring(norm_cand_title, goal_title)
+        or is_meaningful_substring(norm_cand_title, raw_title)
+    )
+    if not title_ok:
+        return False
+
+    norm_cand_artist = normalize_match_key(clean_artist_name(cand_artist))
+    goal_artist = normalize_match_key(clean_artist_name(target_artist))
+    return (
+        not goal_artist
+        or not norm_cand_artist
+        or norm_cand_artist == goal_artist
+        or is_meaningful_substring(norm_cand_artist, goal_artist)
+    )

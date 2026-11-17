@@ -6,6 +6,7 @@ import logging
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TypeVar, cast
 
 import requests
@@ -24,7 +25,10 @@ from instagrapi.exceptions import (
 from instagrapi.mixins.note import NoteAudience
 from instagrapi.types import Note, Track
 
+from noticast.config import AppConfig
 from noticast.logging_utils import log_http_debug
+from noticast.session import SETUP_COMMAND_HINT, load_authenticated_client
+from noticast.state import NoteState, save_note_state
 from noticast.text_utils import (
     build_search_queries,
     normalize_display,
@@ -35,19 +39,23 @@ from noticast.text_utils import (
 _T = TypeVar("_T")
 
 
-class SessionExpiredError(RuntimeError):
+class NotesServiceError(RuntimeError):
+    """Base error raised by InstagramNotesService operations."""
+
+
+class SessionExpiredError(NotesServiceError):
     """Raised when Instagram rejects the saved session and requires re-setup."""
 
 
-class CheckpointRequiredError(RuntimeError):
+class CheckpointRequiredError(NotesServiceError):
     """Raised when Instagram triggers a ChallengeRequired checkpoint."""
 
 
-class RateLimitedError(RuntimeError):
+class RateLimitedError(NotesServiceError):
     """Raised on 429 / FeedbackRequired / PleaseWaitFewMinutes responses."""
 
 
-class NotesApiError(RuntimeError):
+class NotesApiError(NotesServiceError):
     """Raised on other Instagram API failures."""
 
 
@@ -187,8 +195,7 @@ class InstagramNotesService:
             log_http_debug(self._logger, self._cl, f"{label} [{exc.__class__.__name__}]")
             if _is_login_error(self._cl, exc):
                 raise SessionExpiredError(
-                    "Session expired or invalid (LoginRequired). "
-                    + "Re-run `noticast setup` (or `python main.py setup`)."
+                    f"Session expired or invalid (LoginRequired). Re-run {SETUP_COMMAND_HINT}."
                 ) from exc
             raise NotesApiError(f"{exc.__class__.__name__}: {exc}") from exc
         except (requests.exceptions.RequestException, KeyError, AssertionError, ValueError) as exc:
@@ -311,3 +318,32 @@ class InstagramNotesService:
         if delete_before_post:
             self.delete_existing_user_notes()
         return self.post_music_note(track, text=text, audience=audience)
+
+
+def open_notes_service(config: AppConfig, logger: logging.Logger) -> InstagramNotesService:
+    """Load saved session without logging in and return an InstagramNotesService."""
+    cl = load_authenticated_client(config)
+    logger.info("Loaded session for user_id=%s (no login performed).", cl.user_id)
+    return InstagramNotesService(cl, logger)
+
+
+def save_track_note_state(
+    path: Path,
+    *,
+    note_id: str,
+    track: Track,
+    mpris_title: str = "",
+    mpris_artist: str = "",
+) -> None:
+    """Persist NoteState for a posted or matched Instagram Track."""
+    save_note_state(
+        path,
+        NoteState(
+            note_id=note_id,
+            mpris_title=mpris_title or track.title,
+            mpris_artist=mpris_artist or track.display_artist,
+            ig_title=track.title,
+            ig_artist=track.display_artist,
+            audio_cluster_id=str(track.audio_cluster_id),
+        ),
+    )
