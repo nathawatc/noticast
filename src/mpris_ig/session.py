@@ -6,7 +6,9 @@ import contextlib
 import getpass
 import json
 import os
+import stat
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol, cast
@@ -136,9 +138,22 @@ def authenticate_and_save(
         raise RuntimeError("Instagram login returned False without raising an exception.")
 
     session_path.parent.mkdir(parents=True, exist_ok=True)
-    cl.dump_settings(session_path)
-    with contextlib.suppress(OSError):
-        os.chmod(session_path, 0o600)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=session_path.parent,
+        prefix=f".{session_path.name}.",
+        suffix=".tmp",
+    )
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        with contextlib.suppress(OSError):
+            os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR)
+        cl.dump_settings(tmp_path)
+        os.replace(tmp_path, session_path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp_path.unlink(missing_ok=True)
+        raise
     return session_path
 
 

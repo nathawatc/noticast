@@ -98,6 +98,8 @@ class SessionFlowTests(unittest.TestCase):
                 cl, "alice", "secret", session_path, input_fn=lambda _: "123456"
             )
             self.assertTrue(saved.exists())
+            self.assertEqual(saved.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(list(Path(tmpdir).glob("*.tmp")), [])
 
             cfg = AppConfig(paths=PathsConfig(session_file=session_path))
             rc = logout_session(cfg, client_factory=lambda: cl)
