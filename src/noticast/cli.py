@@ -3,28 +3,16 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 
 from noticast.config import DEFAULT_CONFIG_FILE, AppConfig, ConfigError, load_config
 from noticast.logging_utils import configure_logging
+from noticast.modes.clear import run_clear
 from noticast.modes.daemon import run_daemon
 from noticast.modes.manual import run_manual
-from noticast.notes_service import (
-    CheckpointRequiredError,
-    InstagramNotesService,
-    NotesApiError,
-    RateLimitedError,
-    SessionExpiredError,
-)
-from noticast.session import (
-    SessionNotReadyError,
-    load_authenticated_client,
-    logout_session,
-    setup_session_interactive,
-)
+from noticast.session import logout_session, setup_session_interactive
 
 
 class _CliNamespace(argparse.Namespace):
@@ -158,49 +146,6 @@ def _apply_cli_overrides(config: AppConfig, args: _CliNamespace) -> AppConfig:
                 }
             )
     return updated
-
-
-def run_clear(
-    config: AppConfig,
-    logger: logging.Logger,
-    *,
-    dry_run: bool = False,
-    service_factory: Callable[[AppConfig, logging.Logger], InstagramNotesService] | None = None,
-) -> int:
-    """Delete active personal Instagram Note(s) and remove cached local state."""
-    try:
-        if service_factory is not None:
-            service = service_factory(config, logger)
-        else:
-            cl = load_authenticated_client(config)
-            logger.info("Loaded session for user_id=%s (no login performed).", cl.user_id)
-            service = InstagramNotesService(cl, logger)
-
-        if dry_run or config.note.dry_run:
-            active = service.get_active_music_note()
-            if active is None:
-                print("No active personal Note found.")
-            else:
-                print(f"[Dry Run] Would delete personal Note id={active.note.id}.")
-            return 0
-
-        deleted = service.delete_existing_user_notes()
-    except (
-        SessionNotReadyError,
-        SessionExpiredError,
-        CheckpointRequiredError,
-        RateLimitedError,
-        NotesApiError,
-    ) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-
-    config.paths.state_file.unlink(missing_ok=True)
-    if deleted:
-        print(f"Deleted {len(deleted)} active personal Note(s).")
-    else:
-        print("No active personal Note found.")
-    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:

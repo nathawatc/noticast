@@ -23,7 +23,6 @@ from instagrapi.mixins.note import NoteAudience  # noqa: E402
 from instagrapi.types import Note, Track, UserShort  # noqa: E402
 
 from noticast.cli import main as cli_main  # noqa: E402
-from noticast.cli import run_clear  # noqa: E402
 from noticast.config import (  # noqa: E402
     AntiBotConfig,
     AppConfig,
@@ -31,6 +30,7 @@ from noticast.config import (  # noqa: E402
     NoteConfig,
     PathsConfig,
 )
+from noticast.modes.clear import run_clear  # noqa: E402
 from noticast.modes.daemon import DaemonRunner  # noqa: E402
 from noticast.modes.manual import run_manual  # noqa: E402
 from noticast.mpris import MprisTrack  # noqa: E402
