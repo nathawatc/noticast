@@ -150,6 +150,11 @@ class AppConfig(_FrozenConfigModel):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
 
+def _resolve_config_path(base_dir: Path, target: Path) -> Path:
+    expanded = target.expanduser()
+    return expanded if expanded.is_absolute() else base_dir / expanded
+
+
 def load_config(path: Path = DEFAULT_CONFIG_FILE) -> AppConfig:
     """Load and validate AppConfig from a TOML file."""
     if not path.exists():
@@ -160,6 +165,18 @@ def load_config(path: Path = DEFAULT_CONFIG_FILE) -> AppConfig:
 
     try:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
-        return AppConfig.model_validate(raw)
+        config = AppConfig.model_validate(raw)
     except (OSError, tomllib.TOMLDecodeError, ValidationError) as exc:
         raise ConfigError(f"Invalid configuration in '{path}': {exc}") from exc
+
+    base_dir = path.expanduser().resolve().parent
+    return config.model_copy(
+        update={
+            "paths": config.paths.model_copy(
+                update={
+                    "session_file": _resolve_config_path(base_dir, config.paths.session_file),
+                    "state_file": _resolve_config_path(base_dir, config.paths.state_file),
+                }
+            )
+        }
+    )

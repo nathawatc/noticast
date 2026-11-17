@@ -123,6 +123,20 @@ class ConfigAndSpoofTests(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 load_config(bad_cfg)
 
+    def test_relative_paths_resolve_from_config_directory(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sub = Path(tmpdir) / "nested"
+            sub.mkdir()
+            abs_state = Path(tmpdir) / "abs_state.json"
+            cfg_path = sub / "config.toml"
+            cfg_path.write_text(
+                f'[paths]\nsession_file = "creds/session.json"\nstate_file = "{abs_state}"\n',
+                encoding="utf-8",
+            )
+            cfg = load_config(cfg_path)
+            self.assertEqual(cfg.paths.session_file, sub.resolve() / "creds" / "session.json")
+            self.assertEqual(cfg.paths.state_file, abs_state)
+
 
 class CjkAndThaiTextTests(unittest.TestCase):
     def test_thai_chinese_japanese_english_normalization_and_queries(self):
