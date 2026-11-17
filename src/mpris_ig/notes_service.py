@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import TypeVar, cast
 
@@ -56,21 +56,28 @@ class ActiveMusicNote:
 
 
 def _find_audio_asset_dict(obj: object) -> dict[str, object] | None:
-    """Recursively locate a music asset dictionary containing audio_cluster_id."""
+    """Recursively locate a music asset dictionary, preferring one with a track title."""
+    fallback: dict[str, object] | None = None
     if isinstance(obj, dict):
         mapping = cast(dict[str, object], obj)
         if mapping.get("audio_cluster_id") is not None:
-            return mapping
-        for val in mapping.values():
-            found = _find_audio_asset_dict(val)
-            if found is not None:
-                return found
+            if mapping.get("title"):
+                return mapping
+            fallback = mapping
+        children: Iterable[object] = mapping.values()
     elif isinstance(obj, list):
-        for item in cast(list[object], obj):
-            found = _find_audio_asset_dict(item)
-            if found is not None:
+        children = cast(list[object], obj)
+    else:
+        return None
+
+    for child in children:
+        found = _find_audio_asset_dict(child)
+        if found is not None:
+            if found.get("title"):
                 return found
-    return None
+            if fallback is None:
+                fallback = found
+    return fallback
 
 
 def _extract_note_dict_for_user(

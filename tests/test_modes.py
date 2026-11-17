@@ -514,6 +514,53 @@ class DaemonModeTests(unittest.TestCase):
         cl.search_music.assert_not_called()
         cl.create_music_note.assert_not_called()
 
+    def test_startup_prefers_nested_music_asset_with_title_over_outer_cluster_id(self):
+        track_mpris = MprisTrack("spotify", "Playing", "แค่มีเธอ", ("Three Man Down",))
+        backend = mock.MagicMock()
+        backend.get_active_track.return_value = track_mpris
+
+        cl = mock.MagicMock()
+        cl.user_id = 123
+        cl.get_notes.return_value = [_note("906", "123", 1)]
+        cl.last_json = {
+            "data": {
+                "xdt_get_inbox_tray_items": {
+                    "inbox_tray_items": [
+                        {
+                            "inbox_tray_item_id": "906",
+                            "note_dict": {
+                                "author_id": "123",
+                                "note_style": 1,
+                                "note_response_info": {
+                                    "music_note_response_info": {
+                                        "audio_cluster_id": "2001",
+                                        "audio_info": {
+                                            "music_asset_info": {
+                                                "audio_cluster_id": "2001",
+                                                "title": "แค่มีเธอ",
+                                                "display_artist": "Three Man Down",
+                                            }
+                                        },
+                                    }
+                                },
+                            },
+                        }
+                    ]
+                }
+            }
+        }
+
+        runner = self._build_daemon_runner(
+            backend=backend,
+            cl=cl,
+            check_existing_on_startup=True,
+            clock_values=[0.0, 11.0],
+        )
+        self.assertIsNone(runner.step())
+        self.assertIsNone(runner.step())
+        cl.search_music.assert_not_called()
+        cl.create_music_note.assert_not_called()
+
     def test_clear_on_stop_handles_api_errors_and_ignores_unmatched_tracks(self):
         playing = MprisTrack("spotify", "Playing", "Song", ("Artist",))
         paused = MprisTrack("spotify", "Paused", "Song", ("Artist",))
