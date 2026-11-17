@@ -22,6 +22,9 @@ _PAREN_NOISE_RE = re.compile(
 )
 _TRAILING_FEAT_RE = re.compile(r"\s+(?:feat\.?|ft\.?)\s+.+$", re.IGNORECASE)
 _TOPIC_SUFFIX_RE = re.compile(r"\s*-\s*Topic$", re.IGNORECASE)
+_EMPTY_ARTIST_WRAPPER_RE = re.compile(r"\s*[\(\[\uff08【]\s*\{artist\}\s*[\)\]\uff09】]")
+_EMPTY_ARTIST_BEFORE_RE = re.compile(r"\s*(?:[-\u2013—|/·•:]|\bby\b)\s*\{artist\}", re.IGNORECASE)
+_EMPTY_ARTIST_AFTER_RE = re.compile(r"\{artist\}\s*(?:[-\u2013—|/·•:]|\bby\b)\s*", re.IGNORECASE)
 
 
 def normalize_display(text: str) -> str:
@@ -86,10 +89,17 @@ def format_note_text(
     """Render an optional note text template and truncate within Instagram's 60-char limit."""
     if not template or max_len <= 0:
         return ""
+    norm_title = normalize_display(title)
+    norm_artist = clean_artist_name(artist)
+    effective_template = template
+    if not norm_artist:
+        effective_template = _EMPTY_ARTIST_WRAPPER_RE.sub("", effective_template)
+        effective_template = _EMPTY_ARTIST_BEFORE_RE.sub("", effective_template)
+        effective_template = _EMPTY_ARTIST_AFTER_RE.sub("", effective_template)
     rendered = normalize_display(
-        template.format(
-            title=normalize_display(title),
-            artist=clean_artist_name(artist),
+        effective_template.format(
+            title=norm_title,
+            artist=norm_artist,
         )
     )
     if len(rendered) <= max_len:

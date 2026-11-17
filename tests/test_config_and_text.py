@@ -201,6 +201,14 @@ class CjkAndThaiTextTests(unittest.TestCase):
         emoji_cut = format_note_text("{title}", title="a👨‍👩‍👧b", artist="", max_len=5)
         self.assertEqual(emoji_cut, "a…")
 
+        # Empty artist must not leave dangling separators or empty parentheses.
+        self.assertEqual(
+            format_note_text("🎧 {title} — {artist}", title="夜曲", artist=""), "🎧 夜曲"
+        )
+        self.assertEqual(format_note_text("{artist}: {title}", title="夜曲", artist=""), "夜曲")
+        self.assertEqual(format_note_text("{title} ({artist})", title="夜曲", artist=""), "夜曲")
+        self.assertEqual(format_note_text("{title} by {artist}", title="夜曲", artist=""), "夜曲")
+
     def test_score_track_match_rejects_short_substring_and_handles_swapped_artists(self):
         one_char = _track("a", "Other", "10")
         self.assertLess(score_track_match(one_char, "All Too Well", "Taylor Swift"), 25.0)
