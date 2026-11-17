@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
-from dataclasses import replace
 from pathlib import Path
 
 from mpris_ig.config import DEFAULT_CONFIG_FILE, AppConfig, ConfigError, load_config
@@ -106,16 +105,22 @@ def _apply_cli_overrides(config: AppConfig, args: argparse.Namespace) -> AppConf
         if args.poll_interval is not None:
             if args.poll_interval <= 0:
                 raise ConfigError("--poll-interval must be > 0.")
-            updated = replace(
-                updated,
-                mpris=replace(updated.mpris, poll_interval_seconds=args.poll_interval),
+            updated = updated.model_copy(
+                update={
+                    "mpris": updated.mpris.model_copy(
+                        update={"poll_interval_seconds": args.poll_interval}
+                    )
+                }
             )
         if args.debounce is not None:
             if args.debounce < 0:
                 raise ConfigError("--debounce must be >= 0.")
-            updated = replace(
-                updated,
-                anti_bot=replace(updated.anti_bot, debounce_seconds=args.debounce),
+            updated = updated.model_copy(
+                update={
+                    "anti_bot": updated.anti_bot.model_copy(
+                        update={"debounce_seconds": args.debounce}
+                    )
+                }
             )
     return updated
 

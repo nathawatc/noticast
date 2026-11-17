@@ -95,6 +95,16 @@ class ConfigAndSpoofTests(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 load_config(bad_cfg)
 
+    def test_non_list_url_prefixes_raises_config_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_cfg = Path(tmpdir) / "bad_type.toml"
+            bad_cfg.write_text(
+                '[mpris]\nallowed_url_prefixes = "https://music.youtube.com"\n',
+                encoding="utf-8",
+            )
+            with self.assertRaises(ConfigError):
+                load_config(bad_cfg)
+
 
 class CjkAndThaiTextTests(unittest.TestCase):
     def test_thai_chinese_japanese_english_normalization_and_queries(self):
