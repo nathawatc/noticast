@@ -7,7 +7,7 @@ import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from dbus_fast import DBusError, Message, MessageType, unpack_variants
 from dbus_fast.aio import MessageBus
@@ -33,7 +33,6 @@ class MprisTrack:
     status: str
     title: str
     artists: tuple[str, ...] = ()
-    album: str = ""
     length_us: int = 0
     url: str = ""
 
@@ -47,12 +46,6 @@ class MprisTrack:
             normalize_display(self.title),
             normalize_display(self.artist_display),
         )
-
-
-class MprisBackend(Protocol):
-    """Interface for polling currently playing MPRIS tracks."""
-
-    def get_active_track(self) -> MprisTrack | None: ...
 
 
 def _is_player_eligible(
@@ -100,8 +93,6 @@ def parse_mpris_properties(player_name: str, props: dict[str, Any]) -> MprisTrac
     raw_title = meta.get("xesam:title")
     title = normalize_display(str(raw_title)) if raw_title is not None else ""
     artists = _extract_artists(meta)
-    raw_album = meta.get("xesam:album")
-    album = normalize_display(str(raw_album)) if raw_album is not None else ""
     length_us = _extract_int(meta, "mpris:length")
     raw_url = meta.get("xesam:url")
     url = normalize_display(str(raw_url)) if raw_url is not None else ""
@@ -114,7 +105,6 @@ def parse_mpris_properties(player_name: str, props: dict[str, Any]) -> MprisTrac
         status=status or "Stopped",
         title=title,
         artists=artists,
-        album=album,
         length_us=length_us,
         url=url,
     )
@@ -295,16 +285,5 @@ class DbusMprisBackend:
 
         return fallback_paused
 
-    def list_players(self) -> list[str]:
-        return list(self._run(self._list_players_async()))
-
-    def read_player_track(self, service_name: str) -> MprisTrack | None:
-        return self._run(self._read_player_track_async(service_name))
-
     def get_active_track(self) -> MprisTrack | None:
         return self._run(self._get_active_track_async())
-
-
-def create_mpris_backend(config: MprisConfig, logger: logging.Logger) -> MprisBackend:
-    """Select and instantiate the configured MPRIS backend."""
-    return DbusMprisBackend(config, logger)

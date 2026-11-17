@@ -162,7 +162,6 @@ class ManualModeTests(unittest.TestCase):
             track=tracks[0],
             text="ฟังชิลๆ",
             audience=NoteAudience.CLOSE_FRIENDS,
-            alacorn_session_id="al-1",
         )
 
     def test_manual_mode_deletes_first_when_configured(self):
@@ -195,7 +194,6 @@ class ManualModeTests(unittest.TestCase):
             track=tracks[0],
             text="",
             audience=NoteAudience.MUTUAL_FOLLOWERS,
-            alacorn_session_id="al-1",
         )
 
 
@@ -282,7 +280,6 @@ class DaemonModeTests(unittest.TestCase):
             track=ig_track,
             text="🎧 夜曲",
             audience=NoteAudience.MUTUAL_FOLLOWERS,
-            alacorn_session_id="al-2",
         )
 
         # Pausing must NOT delete the note when clear_on_stop=False
@@ -497,7 +494,89 @@ class DaemonModeTests(unittest.TestCase):
         self.assertIsNone(runner2.step())
         cl2.get_notes.assert_not_called()
 
-    def test_cli_verbose_flag_and_once_dry_run(self):
+    def test_startup_short_note_title_does_not_skip_unrelated_song(self):
+        track_mpris = MprisTrack("spotify", "Playing", "Imagine", ("John Lennon",))
+        backend = mock.MagicMock()
+        backend.get_active_track.return_value = track_mpris
+
+        ig_track = _track("Imagine", "John Lennon", 1)
+        cl = mock.MagicMock()
+        cl.user_id = 123
+        cl.get_notes.return_value = [_note("904", "123", 1)]
+        cl.last_json = {
+            "data": {
+                "xdt_get_inbox_tray_items": {
+                    "inbox_tray_items": [
+                        {
+                            "inbox_tray_item_id": "904",
+                            "note_dict": {
+                                "author_id": "123",
+                                "note_style": 1,
+                                "note_response_info": {
+                                    "music_note_response_info": {
+                                        "audio_info": {
+                                            "music_asset_info": {
+                                                "audio_cluster_id": "9999",
+                                                "title": "I",
+                                                "display_artist": "Other",
+                                            }
+                                        }
+                                    }
+                                },
+                            },
+                        }
+                    ]
+                }
+            }
+        }
+        cl.search_music.return_value = [ig_track]
+        cl.create_music_note.return_value = _note("905", "123", 1)
+
+        runner = self._build_daemon_runner(
+            backend=backend,
+            cl=cl,
+            check_existing_on_startup=True,
+            clock_values=[0.0, 11.0, 11.0, 11.0],
+        )
+        self.assertIsNone(runner.step())
+        self.assertIsNone(runner.step())
+        cl.create_music_note.assert_called_once()
+
+    def test_daemon_skips_when_paused_during_jitter_and_stops_on_event(self):
+        playing = MprisTrack("spotify", "Playing", "Song", ("Artist",))
+        paused = MprisTrack("spotify", "Paused", "Song", ("Artist",))
+        backend = mock.MagicMock()
+        backend.get_active_track.side_effect = [playing, playing, paused]
+        cl = mock.MagicMock()
+        cl.user_id = 123
+
+        runner = self._build_daemon_runner(
+            backend=backend,
+            cl=cl,
+            clock_values=[0.0, 11.0, 11.0],
+        )
+        self.assertIsNone(runner.step())
+        self.assertIsNone(runner.step())
+        cl.search_music.assert_not_called()
+
+        import threading
+
+        stop = threading.Event()
+        stop.set()
+        cfg = AppConfig(
+            paths=PathsConfig(state_file=self.state_file),
+            note=NoteConfig(check_existing_on_startup=False),
+        )
+        loop_runner = DaemonRunner(
+            cfg,
+            logging.getLogger("test_stop"),
+            backend=backend,
+            service=InstagramNotesService(cl, logging.getLogger("test_stop")),
+            stop_event=stop,
+        )
+        self.assertEqual(loop_runner.run(), 0)
+
+    def test_cli_verbose_flag_and_once_dry_run_and_invalid_overrides(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
             session_path = tmp / "session.json"
@@ -517,13 +596,15 @@ class DaemonModeTests(unittest.TestCase):
             mock_backend = mock.MagicMock()
             mock_backend.get_active_track.return_value = None
 
-            with mock.patch(
-                "mpris_ig.modes.daemon.create_mpris_backend", return_value=mock_backend
-            ):
+            with mock.patch("mpris_ig.modes.daemon.DbusMprisBackend", return_value=mock_backend):
                 rc = cli_main(
                     ["--config", str(cfg_path), "--verbose", "daemon", "--dry-run", "--once"]
                 )
             self.assertEqual(rc, 0)
+            self.assertEqual(
+                cli_main(["--config", str(cfg_path), "daemon", "--poll-interval", "0"]), 1
+            )
+            self.assertEqual(cli_main(["--config", str(cfg_path), "daemon", "--debounce", "-1"]), 1)
 
 
 if __name__ == "__main__":

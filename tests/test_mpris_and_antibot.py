@@ -171,6 +171,49 @@ class MprisParsingTests(unittest.TestCase):
         self.assertEqual(active.title, "晴天")
         self.assertEqual(active.artist_display, "周杰倫")
 
+    def test_dbus_backend_resets_bus_on_timeout_and_reconnects(self):
+        class _FlakyBus:
+            def __init__(self, fail: bool) -> None:
+                self.fail = fail
+                self.disconnected = False
+
+            async def call(self, msg: Message) -> Message:
+                if self.fail:
+                    raise TimeoutError("dbus timed out")
+                return Message.new_method_return(
+                    Message(
+                        destination=msg.destination,
+                        path=msg.path,
+                        interface=msg.interface,
+                        member=msg.member,
+                        serial=1,
+                    ),
+                    "as",
+                    [[]],
+                )
+
+            def disconnect(self) -> None:
+                self.disconnected = True
+
+        buses = [_FlakyBus(fail=True), _FlakyBus(fail=False)]
+        created: list[_FlakyBus] = []
+
+        async def factory() -> _FlakyBus:
+            bus = buses[len(created)]
+            created.append(bus)
+            return bus
+
+        backend = DbusMprisBackend(
+            MprisConfig(), logging.getLogger("test_flaky"), bus_factory=factory
+        )
+        try:
+            self.assertIsNone(backend.get_active_track())
+            self.assertTrue(created[0].disconnected)
+            self.assertIsNone(backend.get_active_track())
+            self.assertEqual(len(created), 2)
+        finally:
+            backend.close()
+
 
 class AntiBotTests(unittest.TestCase):
     def test_debouncer_ignores_rapid_skips_and_emits_after_stable_window(self):

@@ -51,7 +51,6 @@ class ActiveMusicNote:
 
     note: Note
     audio_cluster_id: str = ""
-    audio_asset_id: str = ""
     track_title: str = ""
     artist_name: str = ""
 
@@ -117,7 +116,6 @@ def extract_active_music_note(
     return ActiveMusicNote(
         note=own_note,
         audio_cluster_id=str(audio_dict.get("audio_cluster_id") or "").strip(),
-        audio_asset_id=str(audio_dict.get("audio_asset_id") or audio_dict.get("id") or "").strip(),
         track_title=normalize_display(str(audio_dict.get("title") or "")),
         artist_name=normalize_display(
             str(audio_dict.get("display_artist") or audio_dict.get("artist_name") or "")
@@ -255,19 +253,13 @@ class InstagramNotesService:
         text: str = "",
         audience: NoteAudience = NoteAudience.MUTUAL_FOLLOWERS,
     ) -> Note:
-        """Acquire notes_music_browser session and create a Music Note via GraphQL."""
-        browser = self._call(
-            "cl.notes_music_browser()",
-            self._cl.notes_music_browser,
-        )
-        alacorn_session_id = browser.get("alacorn_session_id")
+        """Create a Music Note via GraphQL (instagrapi acquires alacorn_session_id)."""
         return self._call(
             f"cl.create_music_note({track.title!r})",
             lambda: self._cl.create_music_note(
                 track=track,
                 text=text,
                 audience=audience,
-                alacorn_session_id=alacorn_session_id,
             ),
         )
 

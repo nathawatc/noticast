@@ -12,10 +12,9 @@ from typing import Any
 from mpris_ig.anti_bot import CooldownGuard, TrackDebouncer, random_jitter
 from mpris_ig.config import AppConfig
 from mpris_ig.mpris import (
-    MprisBackend,
+    DbusMprisBackend,
     MprisBackendError,
     MprisTrack,
-    create_mpris_backend,
 )
 from mpris_ig.notes_service import (
     ActiveMusicNote,
@@ -27,7 +26,12 @@ from mpris_ig.notes_service import (
 )
 from mpris_ig.session import SessionNotReadyError, load_authenticated_client
 from mpris_ig.state import NoteState, load_note_state, save_note_state
-from mpris_ig.text_utils import format_note_text, normalize_match_key, strip_title_noise
+from mpris_ig.text_utils import (
+    format_note_text,
+    is_meaningful_substring,
+    normalize_match_key,
+    strip_title_noise,
+)
 
 
 class DaemonRunner:
@@ -38,7 +42,7 @@ class DaemonRunner:
         config: AppConfig,
         logger: logging.Logger,
         *,
-        backend: MprisBackend,
+        backend: Any,
         service: InstagramNotesService,
         dry_run: bool = False,
         stop_event: threading.Event | None = None,
@@ -79,14 +83,14 @@ class DaemonRunner:
             note_title = normalize_match_key(active.track_title)
             note_artist = normalize_match_key(active.artist_name)
             title_ok = note_title in (goal_title, raw_title) or (
-                bool(note_title) and (goal_title in note_title or note_title in goal_title)
+                is_meaningful_substring(note_title, goal_title)
+                or is_meaningful_substring(note_title, raw_title)
             )
             artist_ok = (
                 not goal_artist
                 or not note_artist
                 or note_artist == goal_artist
-                or goal_artist in note_artist
-                or note_artist in goal_artist
+                or is_meaningful_substring(note_artist, goal_artist)
             )
             if title_ok and artist_ok:
                 return True
@@ -406,7 +410,7 @@ def run_daemon(
     *,
     dry_run: bool = False,
     once: bool = False,
-    backend: MprisBackend | None = None,
+    backend: Any = None,
     service: InstagramNotesService | None = None,
 ) -> int:
     """Initialize dependencies, attach signal handlers, and run the daemon."""
@@ -416,7 +420,7 @@ def run_daemon(
             logger.info("Loaded session for user_id=%s (no login performed).", cl.user_id)
             service = InstagramNotesService(cl, logger)
         if backend is None:
-            backend = create_mpris_backend(config.mpris, logger)
+            backend = DbusMprisBackend(config.mpris, logger)
     except (SessionNotReadyError, MprisBackendError) as exc:
         logger.error("%s", exc)
         return 1
