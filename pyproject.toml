@@ -1,3 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "noticast"
+version = "0.1.0"
+description = "Share your currently playing Linux media (MPRIS2) to Instagram Music Notes."
+readme = "README.md"
+requires-python = ">=3.14"
+license = { file = "LICENSE" }
+dependencies = [
+    "dbus-fast==5.2.0",
+    "grapheme==0.6.0",
+    "instagrapi==3.2.15",
+    "rapidfuzz==3.14.6",
+]
+
+[project.scripts]
+noticast = "mpris_ig.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.ruff]
 target-version = "py314"
 line-length = 100

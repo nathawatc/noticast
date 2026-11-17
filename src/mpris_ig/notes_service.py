@@ -177,7 +177,7 @@ class InstagramNotesService:
             if _is_login_error(self._cl, exc):
                 raise SessionExpiredError(
                     "Session expired or invalid (LoginRequired). "
-                    + "Re-run `./.venv/bin/python main.py setup`."
+                    + "Re-run `noticast setup` (or `python main.py setup`)."
                 ) from exc
             raise NotesApiError(f"{exc.__class__.__name__}: {exc}") from exc
         except (requests.exceptions.RequestException, KeyError, AssertionError, ValueError) as exc:

@@ -30,7 +30,7 @@ class _CliNamespace(argparse.Namespace):
 def build_parser() -> argparse.ArgumentParser:
     """Build top-level CLI parser with subcommands."""
     parser = argparse.ArgumentParser(
-        prog="mpris-ig",
+        prog="noticast",
         description="Post Instagram Music Notes manually or automatically via MPRIS.",
     )
     parser.add_argument(

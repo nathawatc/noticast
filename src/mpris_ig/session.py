@@ -67,7 +67,7 @@ def _load_session_settings(cl: Client, session_path: Path) -> None:
     except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
         raise SessionNotReadyError(
             f"Session file '{session_path}' is unreadable or corrupted ({exc}). "
-            + "Re-run `./.venv/bin/python main.py setup`."
+            + "Re-run `noticast setup` (or `python main.py setup`)."
         ) from exc
 
 
@@ -101,7 +101,7 @@ def load_authenticated_client(config: AppConfig) -> Client:
     if not session_path.exists():
         raise SessionNotReadyError(
             f"Session file '{session_path}' not found. "
-            + "Run `./.venv/bin/python main.py setup` first."
+            + "Run `noticast setup` (or `python main.py setup`) first."
         )
 
     cl = Client(with_challenge_flow=False)
@@ -110,7 +110,7 @@ def load_authenticated_client(config: AppConfig) -> Client:
     if not cl.user_id:
         raise SessionNotReadyError(
             f"'{session_path}' does not contain an authenticated user_id. "
-            + "Re-run `./.venv/bin/python main.py setup`."
+            + "Re-run `noticast setup` (or `python main.py setup`)."
         )
     return cl
 
@@ -220,7 +220,7 @@ def setup_session_interactive(
         _print_sanitized_error_details(cl)
         print(
             "Approve the login attempt in the official Instagram app/web, "
-            + "then re-run `./.venv/bin/python main.py setup`.",
+            + "then re-run `noticast setup` (or `python main.py setup`).",
             file=sys.stderr,
         )
         return 1
