@@ -108,6 +108,16 @@ class NoteConfig(_FrozenConfigModel):
     check_existing_on_startup: bool = True
     dry_run: bool = False
 
+    @field_validator("text_template", mode="after")
+    @classmethod
+    def _validate_text_template(cls, value: str) -> str:
+        if value:
+            try:
+                value.format(title="title", artist="artist")
+            except (KeyError, ValueError, IndexError) as exc:
+                raise ValueError(f"Invalid note.text_template {value!r}: {exc}") from exc
+        return value
+
     @property
     def audience_enum(self) -> NoteAudience:
         """Map string config value to instagrapi NoteAudience enum."""
@@ -132,11 +142,9 @@ class AppConfig(_FrozenConfigModel):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
 
-def load_config(path: Path = DEFAULT_CONFIG_FILE, *, allow_missing: bool = False) -> AppConfig:
+def load_config(path: Path = DEFAULT_CONFIG_FILE) -> AppConfig:
     """Load and validate AppConfig from a TOML file."""
     if not path.exists():
-        if allow_missing:
-            return AppConfig()
         raise ConfigError(
             f"Configuration file '{path}' not found. "
             "Copy config.example.toml to config.toml or pass --config."

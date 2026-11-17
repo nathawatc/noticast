@@ -95,6 +95,16 @@ class ConfigAndSpoofTests(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 load_config(bad_cfg)
 
+    def test_invalid_text_template_raises_config_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_cfg = Path(tmpdir) / "bad_tpl.toml"
+            bad_cfg.write_text(
+                '[note]\ntext_template = "{unknown_field}"\n',
+                encoding="utf-8",
+            )
+            with self.assertRaises(ConfigError):
+                load_config(bad_cfg)
+
     def test_non_list_url_prefixes_raises_config_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             bad_cfg = Path(tmpdir) / "bad_type.toml"
@@ -163,6 +173,22 @@ class CjkAndThaiTextTests(unittest.TestCase):
         thai_cut = format_note_text("{title}", title="ก้ำกึ่งมาก", artist="", max_len=5)
         self.assertLessEqual(len(thai_cut), 5)
         self.assertTrue(thai_cut.endswith("…"))
+
+        # ZWJ emoji cluster safety: must not split inside 👨‍👩‍👧
+        emoji_cut = format_note_text("{title}", title="a👨‍👩‍👧b", artist="", max_len=5)
+        self.assertEqual(emoji_cut, "a…")
+
+    def test_score_track_match_rejects_short_substring_and_handles_swapped_artists(self):
+        one_char = _track("a", "Other", "10")
+        self.assertLess(score_track_match(one_char, "All Too Well", "Taylor Swift"), 25.0)
+
+        swapped = _track("Collab Song", "Artist B, Artist A", "11")
+        wrong_artist = _track("Collab Song", "Completely Different", "12")
+        self.assertGreater(
+            score_track_match(swapped, "Collab Song", "Artist A & Artist B"),
+            score_track_match(wrong_artist, "Collab Song", "Artist A & Artist B"),
+        )
+        self.assertGreater(score_track_match(swapped, "Collab Song", "Artist A & Artist B"), 75.0)
 
     def test_verbose_http_debug_logs_unescaped_thai_and_cjk_only_in_debug(self):
         cl = mock.MagicMock()

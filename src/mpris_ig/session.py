@@ -58,6 +58,16 @@ def apply_device_and_region(
     cl.private.headers.update(cl.base_headers)
 
 
+def _load_session_settings(cl: Client, session_path: Path) -> None:
+    try:
+        cl.load_settings(session_path)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise SessionNotReadyError(
+            f"Session file '{session_path}' is unreadable or corrupted ({exc}). "
+            "Re-run `./.venv/bin/python main.py setup`."
+        ) from exc
+
+
 def create_client(
     config: AppConfig,
     *,
@@ -74,7 +84,7 @@ def create_client(
     session_path = config.paths.session_file
     if reuse_existing and session_path.exists():
         print(f"Loading existing device/session settings from {session_path}...")
-        cl.load_settings(session_path)
+        _load_session_settings(cl, session_path)
 
     if apply_profile:
         apply_device_and_region(cl, config.device, config.region)
@@ -93,7 +103,7 @@ def load_authenticated_client(config: AppConfig) -> Client:
 
     cl = Client(with_challenge_flow=False)
     cl.delay_range = list(config.anti_bot.request_delay_range)
-    cl.load_settings(session_path)
+    _load_session_settings(cl, session_path)
     if not cl.user_id:
         raise SessionNotReadyError(
             f"'{session_path}' does not contain an authenticated user_id. "
@@ -179,12 +189,16 @@ def setup_session_interactive(
         print("Error: Password is required.", file=sys.stderr)
         return 1
 
-    cl = create_client(
-        config,
-        reuse_existing=reuse_existing,
-        apply_profile=apply_profile,
-        with_challenge_flow=True,
-    )
+    try:
+        cl = create_client(
+            config,
+            reuse_existing=reuse_existing,
+            apply_profile=apply_profile,
+            with_challenge_flow=True,
+        )
+    except SessionNotReadyError as exc:
+        print(f"\nError: {exc}", file=sys.stderr)
+        return 1
 
     try:
         saved_path = authenticate_and_save(cl, username, password, session_path, input_fn=input_fn)
@@ -237,7 +251,15 @@ def logout_session(
 
     cl = client_factory()
     cl.with_challenge_flow = False
-    cl.load_settings(session_path)
+    try:
+        _load_session_settings(cl, session_path)
+    except SessionNotReadyError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        if force:
+            session_path.unlink(missing_ok=True)
+            print(f"Removed local {session_path} (--force).")
+            return 0
+        return 1
 
     if not cl.user_id:
         session_path.unlink(missing_ok=True)
