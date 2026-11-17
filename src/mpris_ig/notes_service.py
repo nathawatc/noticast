@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import TypeVar, cast
@@ -24,7 +25,12 @@ from instagrapi.mixins.note import NoteAudience
 from instagrapi.types import Note, Track
 
 from mpris_ig.logging_utils import log_http_debug
-from mpris_ig.text_utils import build_search_queries, normalize_display, score_track_match
+from mpris_ig.text_utils import (
+    build_search_queries,
+    normalize_display,
+    normalize_match_key,
+    score_track_match,
+)
 
 _T = TypeVar("_T")
 
@@ -153,9 +159,14 @@ def _is_login_error(cl: Client, exc: Exception) -> bool:
 class InstagramNotesService:
     """High-level Music Notes operations with error classification and debug logging."""
 
+    _MAX_MATCH_CACHE_SIZE: int = 128
+
     def __init__(self, cl: Client, logger: logging.Logger) -> None:
         self._cl: Client = cl
         self._logger: logging.Logger = logger
+        self._match_cache: OrderedDict[tuple[str, str, float], tuple[Track, float] | None] = (
+            OrderedDict()
+        )
 
     def _call(self, label: str, fn: Callable[[], _T]) -> _T:
         try:
@@ -206,6 +217,12 @@ class InstagramNotesService:
         if not queries:
             return None
 
+        cache_key = (normalize_match_key(title), normalize_match_key(artist), min_score)
+        if cache_key in self._match_cache:
+            self._match_cache.move_to_end(cache_key)
+            self._logger.debug("[Match] Cache hit for %r — %r", title, artist)
+            return self._match_cache[cache_key]
+
         best_track: Track | None = None
         best_score = -1.0
 
@@ -228,9 +245,13 @@ class InstagramNotesService:
             if best_score >= 80.0:
                 break
 
-        if best_track is None or best_score < min_score:
-            return None
-        return best_track, best_score
+        result = (
+            (best_track, best_score) if best_track is not None and best_score >= min_score else None
+        )
+        self._match_cache[cache_key] = result
+        if len(self._match_cache) > self._MAX_MATCH_CACHE_SIZE:
+            self._match_cache.popitem(last=False)
+        return result
 
     def get_active_music_note(self) -> ActiveMusicNote | None:
         """Fetch Inbox Tray notes and return the active personal note + music metadata."""

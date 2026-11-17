@@ -137,6 +137,25 @@ class SessionFlowTests(unittest.TestCase):
         with self.assertRaises(NotesApiError):
             service.post_music_note(_track())
 
+    def test_notes_service_caches_track_matches_within_session(self):
+        cl = mock.MagicMock()
+        ig_track = _track("夜曲", "周杰倫", 1)
+        cl.search_music.return_value = [ig_track]
+        service = InstagramNotesService(cl, logging.getLogger("test_svc_cache"))
+
+        first = service.find_best_track("夜曲", "周杰倫")
+        second = service.find_best_track(" 夜曲 ", "周杰倫")
+        self.assertEqual(first, second)
+        self.assertIsNotNone(first)
+        cl.search_music.assert_called_once()
+
+        # Unmatched lookups are also cached once search succeeds cleanly.
+        cl.search_music.reset_mock()
+        cl.search_music.return_value = []
+        self.assertIsNone(service.find_best_track("Unknown Song", "Unknown Artist"))
+        self.assertIsNone(service.find_best_track("Unknown Song", "Unknown Artist"))
+        self.assertEqual(cl.search_music.call_count, 2)  # 1 attempt x 2 queries, cached on 2nd call
+
     def test_setup_reuse_existing_preserves_saved_device_settings(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             session_path = Path(tmpdir) / "session.json"
