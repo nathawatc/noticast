@@ -725,6 +725,13 @@ class DaemonModeTests(unittest.TestCase):
             )
             self.assertEqual(cli_main(["--config", str(cfg_path), "daemon", "--debounce", "-1"]), 1)
 
+            with mock.patch("mpris_ig.cli.run_manual", side_effect=EOFError):
+                self.assertEqual(cli_main(["--config", str(cfg_path), "manual"]), 130)
+            with mock.patch(
+                "mpris_ig.cli.setup_session_interactive", side_effect=KeyboardInterrupt
+            ):
+                self.assertEqual(cli_main(["--config", str(cfg_path), "setup"]), 130)
+
 
 if __name__ == "__main__":
     unittest.main()

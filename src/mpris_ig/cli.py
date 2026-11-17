@@ -157,13 +157,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     logger = configure_logging(verbose=verbose)
 
-    if args.command == "setup":
-        return setup_session_interactive(config, keep_device=args.keep_device)
-    if args.command == "logout":
-        return logout_session(config, force=args.force)
-    if args.command == "manual":
-        return run_manual(config, logger, dry_run=args.dry_run)
-    if args.command == "daemon":
-        return run_daemon(config, logger, dry_run=args.dry_run, once=args.once)
+    try:
+        if args.command == "setup":
+            return setup_session_interactive(config, keep_device=args.keep_device)
+        if args.command == "logout":
+            return logout_session(config, force=args.force)
+        if args.command == "manual":
+            return run_manual(config, logger, dry_run=args.dry_run)
+        if args.command == "daemon":
+            return run_daemon(config, logger, dry_run=args.dry_run, once=args.once)
+    except KeyboardInterrupt, EOFError:
+        print("\nCancelled.", file=sys.stderr)
+        return 130
 
     return 1
