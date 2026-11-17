@@ -29,7 +29,8 @@ poll_interval_seconds = 5.0
 allowed_players = []
 ignored_players = ["kdeconnect", "gsconnect"]
 # Filter by xesam:url prefix (empty list [] disables URL filtering)
-allowed_url_prefixes = ["https://music.youtube.com"]
+# Example for YouTube Music only: allowed_url_prefixes = ["https://music.youtube.com"]
+allowed_url_prefixes = []
 # Only accept tracks shorter than this duration in seconds (0 disables; 420 = 7 min)
 max_length_seconds = 420
 

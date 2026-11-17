@@ -61,7 +61,7 @@ class ConfigAndSpoofTests(unittest.TestCase):
         self.assertEqual(cfg.note.audience_enum, NoteAudience.MUTUAL_FOLLOWERS)
         self.assertFalse(cfg.note.clear_on_stop)
         self.assertFalse(cfg.logging.verbose)
-        self.assertEqual(cfg.mpris.allowed_url_prefixes, ("https://music.youtube.com",))
+        self.assertEqual(cfg.mpris.allowed_url_prefixes, ())
         self.assertEqual(cfg.mpris.max_length_seconds, 420)
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -71,11 +71,12 @@ class ConfigAndSpoofTests(unittest.TestCase):
                 + 'manufacturer = "samsung"\nresolution = "1440x3088"\ndpi = "480dpi"\n'
                 + '[region]\nlocale = "ja_JP"\ncountry = "JP"\ncountry_code = 81\n'
                 + 'timezone_offset = 32400\ntimezone_name = "Asia/Tokyo"\n'
-                + "[mpris]\nallowed_url_prefixes = []\nmax_length_seconds = 0\n",
+                + '[mpris]\nallowed_url_prefixes = ["https://music.youtube.com"]\n'
+                + "max_length_seconds = 0\n",
                 encoding="utf-8",
             )
             custom_cfg = load_config(custom_path)
-            self.assertEqual(custom_cfg.mpris.allowed_url_prefixes, ())
+            self.assertEqual(custom_cfg.mpris.allowed_url_prefixes, ("https://music.youtube.com",))
             self.assertEqual(custom_cfg.mpris.max_length_seconds, 0)
 
             cl = create_client(custom_cfg, apply_profile=True)
