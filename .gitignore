@@ -3,6 +3,9 @@ __pycache__/
 __pypackages__/
 .venv
 .ruff_cache/
+build/
+dist/
+*.egg-info/
 session.json
 .note_state.json
 config.toml
