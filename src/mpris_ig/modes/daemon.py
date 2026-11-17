@@ -418,7 +418,11 @@ class DaemonRunner:
 
             base_poll = self._config.mpris.poll_interval_seconds
             poll_jitter = self._jitter_fn(0.0, min(1.0, base_poll * 0.2))
-            self._sleep_interruptible(base_poll + poll_jitter)
+            wait_seconds = base_poll + poll_jitter
+            if isinstance(self._backend, DbusMprisBackend):
+                self._backend.wait_for_update(wait_seconds, self._stop_event)
+            else:
+                self._sleep_interruptible(wait_seconds)
 
         self._logger.info("Daemon stopped cleanly.")
         return 0

@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
+import threading
+import time
 import unittest
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 _SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
-from dbus_fast import Message, Variant  # noqa: E402
+from dbus_fast import Message, MessageType, Variant  # noqa: E402
 
 from mpris_ig.anti_bot import CooldownGuard, TrackDebouncer  # noqa: E402
 from mpris_ig.config import MprisConfig  # noqa: E402
@@ -321,6 +326,101 @@ class MprisParsingTests(unittest.TestCase):
         assert active is not None
         self.assertEqual(active.player_name, "spotify")
         self.assertEqual(active.title, "Spotify Song")
+
+    def test_dbus_backend_wakes_immediately_on_relevant_properties_changed_signal(self):
+        class _SignalBus:
+            def __init__(self) -> None:
+                self.handlers: list[Callable[[Message], Message | bool | None]] = []
+                self.match_rules: list[str] = []
+
+            def add_message_handler(
+                self, handler: Callable[[Message], Message | bool | None]
+            ) -> None:
+                self.handlers.append(handler)
+
+            async def call(self, msg: Message) -> Message:
+                req = Message(
+                    destination=msg.destination,
+                    path=msg.path,
+                    interface=msg.interface,
+                    member=msg.member,
+                    serial=1,
+                )
+                if msg.member == "AddMatch":
+                    msg_body = cast(list[object], msg.body)
+                    self.match_rules.append(str(msg_body[0]))
+                    return Message.new_method_return(req, "", [])
+                if msg.member == "ListNames":
+                    return Message.new_method_return(req, "as", [[]])
+                return Message.new_method_return(req, "a{sv}", [{}])
+
+            def emit_signal(self, msg: Message) -> None:
+                for handler in self.handlers:
+                    handler(msg)
+
+            def disconnect(self) -> None:
+                pass
+
+        bus = _SignalBus()
+
+        async def factory() -> _SignalBus:
+            return bus
+
+        backend = DbusMprisBackend(
+            MprisConfig(), logging.getLogger("test_sig"), bus_factory=factory
+        )
+        stop_event = threading.Event()
+        try:
+            self.assertIsNone(backend.get_active_track())
+            self.assertEqual(len(bus.match_rules), 2)
+
+            # Irrelevant Position-only PropertiesChanged must NOT wake early.
+            pos_sig = Message(
+                message_type=MessageType.SIGNAL,
+                path="/org/mpris/MediaPlayer2",
+                interface="org.freedesktop.DBus.Properties",
+                member="PropertiesChanged",
+                signature="sa{sv}as",
+                body=["org.mpris.MediaPlayer2.Player", {"Position": Variant("x", 1000)}, []],
+            )
+            bus.emit_signal(pos_sig)
+
+            start = time.monotonic()
+            self.assertFalse(backend.wait_for_update(0.05, stop_event))
+            self.assertGreaterEqual(time.monotonic() - start, 0.04)
+
+            # Metadata / PlaybackStatus signal wakes wait_for_update immediately.
+            track_sig = Message(
+                message_type=MessageType.SIGNAL,
+                path="/org/mpris/MediaPlayer2",
+                interface="org.freedesktop.DBus.Properties",
+                member="PropertiesChanged",
+                signature="sa{sv}as",
+                body=[
+                    "org.mpris.MediaPlayer2.Player",
+                    {"PlaybackStatus": Variant("s", "Playing")},
+                    [],
+                ],
+            )
+
+            async def emit_soon() -> None:
+                await asyncio.sleep(0.01)
+                bus.emit_signal(track_sig)
+
+            t0 = time.monotonic()
+
+            async def run_wait_with_signal() -> bool:
+                task = asyncio.create_task(emit_soon())
+                try:
+                    return await backend._wait_for_signal_async(5.0, stop_event)  # pyright: ignore[reportPrivateUsage]
+                finally:
+                    await task
+
+            woken_by_stop = backend._run(run_wait_with_signal())  # pyright: ignore[reportPrivateUsage]
+            self.assertFalse(woken_by_stop)
+            self.assertLess(time.monotonic() - t0, 1.0)
+        finally:
+            backend.close()
 
 
 class AntiBotTests(unittest.TestCase):

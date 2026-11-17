@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import threading
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol, cast
+from typing import Protocol, cast, runtime_checkable
 
 from dbus_fast import DBusError, Message, MessageType, unpack_variants
 from dbus_fast.aio import MessageBus
@@ -19,6 +20,12 @@ MPRIS_PREFIX = "org.mpris.MediaPlayer2."
 MPRIS_OBJECT_PATH = "/org/mpris/MediaPlayer2"
 MPRIS_PLAYER_IFACE = "org.mpris.MediaPlayer2.Player"
 DBUS_TIMEOUT_SECONDS = 5.0
+_MPRIS_MATCH_RULES = (
+    "type='signal',interface='org.freedesktop.DBus.Properties',"
+    + f"member='PropertiesChanged',path='{MPRIS_OBJECT_PATH}',arg0='{MPRIS_PLAYER_IFACE}'",
+    "type='signal',interface='org.freedesktop.DBus',"
+    + f"member='NameOwnerChanged',arg0namespace='{MPRIS_PREFIX.removesuffix('.')}'",
+)
 
 
 class MprisBackendError(RuntimeError):
@@ -51,6 +58,38 @@ class MprisTrack:
 class _MessageBusProtocol(Protocol):
     async def call(self, msg: Message) -> Message: ...
     def disconnect(self) -> None: ...
+
+
+@runtime_checkable
+class _SignalBusProtocol(Protocol):
+    def add_message_handler(self, handler: Callable[[Message], Message | bool | None]) -> None: ...
+
+
+def _is_relevant_mpris_signal(msg: Message) -> bool:
+    if msg.message_type != MessageType.SIGNAL:
+        return False
+    body = cast(list[object], msg.body or [])
+    if (
+        msg.interface == "org.freedesktop.DBus.Properties"
+        and msg.member == "PropertiesChanged"
+        and msg.path == MPRIS_OBJECT_PATH
+        and len(body) >= 2
+        and body[0] == MPRIS_PLAYER_IFACE
+    ):
+        changed = cast(dict[object, object], body[1]) if isinstance(body[1], dict) else {}
+        invalidated = (
+            cast(list[object], body[2]) if len(body) >= 3 and isinstance(body[2], list) else []
+        )
+        relevant = {"PlaybackStatus", "Metadata"}
+        return any(k in changed for k in relevant) or any(k in invalidated for k in relevant)
+    if (
+        msg.interface == "org.freedesktop.DBus"
+        and msg.member == "NameOwnerChanged"
+        and len(body) >= 1
+        and isinstance(body[0], str)
+    ):
+        return body[0].startswith(MPRIS_PREFIX)
+    return False
 
 
 def _player_priority(
@@ -179,6 +218,8 @@ class DbusMprisBackend:
         self._timeout_seconds: float = timeout_seconds
         self._runner: asyncio.Runner | None = None
         self._bus: _MessageBusProtocol | None = None
+        self._changed_event: asyncio.Event | None = None
+        self._signals_subscribed: bool = False
 
     def _run[T](self, coro: Coroutine[object, object, T]) -> T:
         if self._runner is None:
@@ -186,6 +227,8 @@ class DbusMprisBackend:
         return self._runner.run(coro)
 
     def _reset_bus(self) -> None:
+        self._signals_subscribed = False
+        self._changed_event = None
         if self._bus is not None:
             with contextlib.suppress(Exception):
                 self._bus.disconnect()
@@ -198,6 +241,49 @@ class DbusMprisBackend:
             self._runner.close()
             self._runner = None
 
+    def _on_dbus_message(self, msg: Message) -> None:
+        if _is_relevant_mpris_signal(msg) and self._changed_event is not None:
+            self._changed_event.set()
+
+    async def _ensure_bus_async(self) -> _MessageBusProtocol:
+        if self._bus is not None:
+            return self._bus
+        bus = await asyncio.wait_for(
+            self._bus_factory(),
+            timeout=self._timeout_seconds,
+        )
+        self._bus = bus
+        self._signals_subscribed = False
+        self._changed_event = None
+        if isinstance(bus, _SignalBusProtocol):
+            self._changed_event = asyncio.Event()
+            bus.add_message_handler(self._on_dbus_message)
+            try:
+                for rule in _MPRIS_MATCH_RULES:
+                    reply = await asyncio.wait_for(
+                        bus.call(
+                            Message(
+                                destination="org.freedesktop.DBus",
+                                path="/org/freedesktop/DBus",
+                                interface="org.freedesktop.DBus",
+                                member="AddMatch",
+                                signature="s",
+                                body=[rule],
+                            )
+                        ),
+                        timeout=self._timeout_seconds,
+                    )
+                    if reply.message_type == MessageType.ERROR:
+                        raise MprisBackendError("AddMatch returned D-Bus error")
+                self._signals_subscribed = True
+            except (TimeoutError, OSError, EOFError, DBusError, MprisBackendError) as exc:
+                self._logger.debug(
+                    "[MPRIS] PropertiesChanged match failed (using polling fallback): %s",
+                    exc,
+                )
+                self._signals_subscribed = False
+        return bus
+
     async def _call_dbus(
         self,
         *,
@@ -209,11 +295,7 @@ class DbusMprisBackend:
         body: Sequence[object] | None = None,
     ) -> list[object]:
         try:
-            if self._bus is None:
-                self._bus = await asyncio.wait_for(
-                    self._bus_factory(),
-                    timeout=self._timeout_seconds,
-                )
+            bus = await self._ensure_bus_async()
             msg = Message(
                 destination=destination,
                 path=path,
@@ -223,7 +305,7 @@ class DbusMprisBackend:
                 body=list(body) if body else [],
             )
             reply = await asyncio.wait_for(
-                self._bus.call(msg),
+                bus.call(msg),
                 timeout=self._timeout_seconds,
             )
         except (TimeoutError, OSError, EOFError, DBusError) as exc:
@@ -275,6 +357,8 @@ class DbusMprisBackend:
         return parse_mpris_properties(short_name, cast(dict[str, object], unpacked))
 
     async def _get_active_track_async(self) -> MprisTrack | None:
+        if self._changed_event is not None:
+            self._changed_event.clear()
         try:
             players = await self._list_players_async()
         except MprisBackendError as exc:
@@ -305,3 +389,36 @@ class DbusMprisBackend:
 
     def get_active_track(self) -> MprisTrack | None:
         return self._run(self._get_active_track_async())
+
+    async def _wait_for_signal_async(
+        self, timeout_seconds: float, stop_event: threading.Event
+    ) -> bool:
+        event = self._changed_event
+        if event is None:
+            return stop_event.wait(timeout=timeout_seconds)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
+        waiter = asyncio.create_task(event.wait())
+        try:
+            while not stop_event.is_set():
+                if event.is_set():
+                    return False
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    return stop_event.is_set()
+                done, _ = await asyncio.wait({waiter}, timeout=min(0.25, remaining))
+                if waiter in done:
+                    return False
+            return True
+        finally:
+            waiter.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await waiter
+
+    def wait_for_update(self, timeout_seconds: float, stop_event: threading.Event) -> bool:
+        """Wait for an MPRIS D-Bus signal or timeout fallback; return True if stop requested."""
+        if timeout_seconds <= 0:
+            return stop_event.is_set()
+        if not self._signals_subscribed or self._bus is None or self._changed_event is None:
+            return stop_event.wait(timeout=timeout_seconds)
+        return self._run(self._wait_for_signal_async(timeout_seconds, stop_event))
