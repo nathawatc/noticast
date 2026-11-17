@@ -200,7 +200,12 @@ class DaemonRunner:
             )
             return None
         except NotesApiError as exc:
-            self._logger.warning("[IG] Failed to clear note on stop (will retry later): %s", exc)
+            wait_s = self._cooldown.record_transient_error(now=self._clock_fn())
+            self._logger.warning(
+                "[IG] Failed to clear note on stop — backing off %.0fs: %s",
+                wait_s,
+                exc,
+            )
             return None
 
         self._cooldown.record_post(now=now)
@@ -382,8 +387,9 @@ class DaemonRunner:
                 wait_s,
             )
         except NotesApiError as exc:
+            wait_s = self._cooldown.record_transient_error(now=self._clock_fn())
             self._debouncer.reset_pending()
-            self._logger.warning("[IG] Temporary API error (will retry later): %s", exc)
+            self._logger.warning("[IG] Temporary API error — backing off %.0fs: %s", wait_s, exc)
 
         return None
 

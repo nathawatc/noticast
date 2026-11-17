@@ -262,6 +262,14 @@ class AntiBotTests(unittest.TestCase):
         self.assertAlmostEqual(rem_rl, 600.0)
         self.assertEqual(guard.can_post(now=1200.0), (True, 0.0))
 
+        # Transient API errors apply exponential backoff (60s -> 120s) and reset on post.
+        self.assertEqual(guard.record_transient_error(now=1300.0), 60.0)
+        self.assertEqual(guard.can_post(now=1320.0), (False, 40.0))
+        self.assertEqual(guard.record_transient_error(now=1360.0), 120.0)
+        self.assertEqual(guard.can_post(now=1420.0), (False, 60.0))
+        guard.record_post(now=1500.0)
+        self.assertEqual(guard.record_transient_error(now=1700.0), 60.0)
+
 
 if __name__ == "__main__":
     unittest.main()

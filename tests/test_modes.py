@@ -371,6 +371,27 @@ class DaemonModeTests(unittest.TestCase):
         self.assertIsNone(runner.step())
         self.assertEqual(cl.search_music.call_count, 1)
 
+    def test_daemon_backs_off_on_transient_notes_api_error(self):
+        track_mpris = MprisTrack("spotify", "Playing", "Song", ("Artist",))
+        backend = mock.MagicMock()
+        backend.get_active_track.return_value = track_mpris
+
+        cl = mock.MagicMock()
+        cl.user_id = 123
+        cl.search_music.side_effect = requests.exceptions.ReadTimeout("timed out")
+
+        runner = self._build_daemon_runner(
+            backend=backend,
+            cl=cl,
+            clock_values=[0.0, 15.0, 15.0, 15.0, 40.0],
+        )
+        self.assertIsNone(runner.step())  # start debounce at t=0
+        self.assertIsNone(runner.step())  # search fails at t=15 -> 60s backoff
+        self.assertEqual(cl.search_music.call_count, 1)
+        # At t=40 (still inside 60s backoff), daemon must not hit Instagram again.
+        self.assertIsNone(runner.step())
+        self.assertEqual(cl.search_music.call_count, 1)
+
     def test_startup_skips_when_remote_music_note_matches(self):
         track_mpris = MprisTrack("spotify", "Playing", "แค่มีเธอ", ("Three Man Down",))
         backend = mock.MagicMock()
