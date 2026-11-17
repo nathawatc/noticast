@@ -108,7 +108,7 @@ def format_note_text(
     return f"{''.join(kept).rstrip()}…"
 
 
-def _is_meaningful_substring(a: str, b: str) -> bool:
+def is_meaningful_substring(a: str, b: str) -> bool:
     return bool(a and b and min(len(a), len(b)) >= 3 and (a in b or b in a))
 
 
@@ -131,7 +131,7 @@ def score_track_match(track: Track, target_title: str, target_artist: str = "") 
     # Title matching (handles exact, substring, and token-set similarity for CJK/Thai/EN)
     if cand_title and cand_title in (raw_goal_title, goal_title):
         score += 60.0
-    elif _is_meaningful_substring(cand_title, goal_title) or _is_meaningful_substring(
+    elif is_meaningful_substring(cand_title, goal_title) or is_meaningful_substring(
         cand_title, raw_goal_title
     ):
         score += 42.0
@@ -145,11 +145,11 @@ def score_track_match(track: Track, target_title: str, target_artist: str = "") 
     if goal_artist:
         if cand_artist == goal_artist:
             score += 40.0
-        elif _is_meaningful_substring(cand_artist, goal_artist):
+        elif is_meaningful_substring(cand_artist, goal_artist):
             score += 28.0
         else:
             score += 22.0 * _similarity(cand_artist, goal_artist)
-    elif _is_meaningful_substring(cand_artist, raw_goal_title):
+    elif is_meaningful_substring(cand_artist, raw_goal_title):
         # Handle players that embed "Artist - Title" into xesam:title with empty artist
         score += 20.0
 

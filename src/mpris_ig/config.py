@@ -66,7 +66,6 @@ class RegionConfig(_FrozenConfigModel):
 
 
 class MprisConfig(_FrozenConfigModel):
-    backend: Annotated[Literal["auto", "dbus"], BeforeValidator(_lower_str)] = "auto"
     poll_interval_seconds: Annotated[float, Field(gt=0)] = 5.0
     allowed_players: tuple[str, ...] = ()
     ignored_players: tuple[str, ...] = ("kdeconnect", "gsconnect")
@@ -153,5 +152,5 @@ def load_config(path: Path = DEFAULT_CONFIG_FILE) -> AppConfig:
     try:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
         return AppConfig.model_validate(raw)
-    except (tomllib.TOMLDecodeError, ValidationError) as exc:
+    except (OSError, tomllib.TOMLDecodeError, ValidationError) as exc:
         raise ConfigError(f"Invalid configuration in '{path}': {exc}") from exc

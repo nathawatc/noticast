@@ -105,6 +105,10 @@ class ConfigAndSpoofTests(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 load_config(bad_cfg)
 
+    def test_directory_config_path_raises_config_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir, self.assertRaises(ConfigError):
+            load_config(Path(tmpdir))
+
     def test_non_list_url_prefixes_raises_config_error(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             bad_cfg = Path(tmpdir) / "bad_type.toml"

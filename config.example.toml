@@ -24,8 +24,6 @@ timezone_offset = 0
 timezone_name = "UTC"
 
 [mpris]
-# "auto" / "dbus" uses native D-Bus via dbus-fast
-backend = "auto"
 poll_interval_seconds = 5.0
 # Empty list = allow any MPRIS player not listed in ignored_players
 allowed_players = []
