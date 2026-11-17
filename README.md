@@ -17,7 +17,7 @@ automatically or from the CLI.
 ## Requirements
 
 - Linux with Python `3.14+`
-- systemd `busctl` (or `playerctl`)
+- Active D-Bus session bus (MPRIS2-compatible media player)
 
 ## Setup
 

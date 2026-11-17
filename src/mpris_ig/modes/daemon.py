@@ -411,3 +411,6 @@ def run_daemon(
     finally:
         signal.signal(signal.SIGINT, prev_int)
         signal.signal(signal.SIGTERM, prev_term)
+        close_fn = getattr(backend, "close", None)
+        if callable(close_fn):
+            close_fn()

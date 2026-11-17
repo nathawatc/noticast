@@ -24,7 +24,7 @@ timezone_offset = 0
 timezone_name = "UTC"
 
 [mpris]
-# "auto" prefers busctl (native systemd D-Bus JSON), falling back to playerctl
+# "auto" / "dbus" uses native D-Bus via dbus-fast
 backend = "auto"
 poll_interval_seconds = 5.0
 # Empty list = allow any MPRIS player not listed in ignored_players

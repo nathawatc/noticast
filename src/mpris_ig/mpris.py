@@ -1,13 +1,16 @@
-"""MPRIS D-Bus reader backends with full UTF-8 / Thai / CJK metadata support."""
+"""MPRIS D-Bus reader backend powered by `dbus-fast` with full UTF-8 metadata support."""
 
 from __future__ import annotations
 
-import json
+import asyncio
+import contextlib
 import logging
-import shutil
-import subprocess
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
+
+from dbus_fast import DBusError, Message, MessageType, unpack_variants
+from dbus_fast.aio import MessageBus
 
 from mpris_ig.config import MprisConfig
 from mpris_ig.text_utils import normalize_display
@@ -15,6 +18,7 @@ from mpris_ig.text_utils import normalize_display
 MPRIS_PREFIX = "org.mpris.MediaPlayer2."
 MPRIS_OBJECT_PATH = "/org/mpris/MediaPlayer2"
 MPRIS_PLAYER_IFACE = "org.mpris.MediaPlayer2.Player"
+DBUS_TIMEOUT_SECONDS = 5.0
 
 
 class MprisBackendError(RuntimeError):
@@ -57,22 +61,18 @@ def _is_player_eligible(
     ignored: tuple[str, ...],
 ) -> bool:
     short_name = service_name.removeprefix(MPRIS_PREFIX).casefold()
-    full_name = service_name.casefold()
 
-    if any(token.casefold() in short_name or token.casefold() in full_name for token in ignored):
+    if any(token.casefold() in short_name for token in ignored if token):
         return False
 
     if not allowed:
         return True
 
-    return any(token.casefold() in short_name or token.casefold() in full_name for token in allowed)
+    return any(token.casefold() in short_name for token in allowed if token)
 
 
-def _extract_busctl_artists(meta: dict[str, Any]) -> tuple[str, ...]:
-    artist_entry = meta.get("xesam:artist")
-    if not isinstance(artist_entry, dict):
-        return ()
-    raw_val = artist_entry.get("data")
+def _extract_artists(meta: dict[str, Any]) -> tuple[str, ...]:
+    raw_val = meta.get("xesam:artist")
     if isinstance(raw_val, list):
         cleaned = [normalize_display(str(a)) for a in raw_val if str(a).strip()]
         return tuple(a for a in cleaned if a)
@@ -81,54 +81,30 @@ def _extract_busctl_artists(meta: dict[str, Any]) -> tuple[str, ...]:
     return ()
 
 
-def _extract_busctl_str(meta: dict[str, Any], key: str) -> str:
-    entry = meta.get(key)
-    if not isinstance(entry, dict):
-        return ""
-    raw_val = entry.get("data")
-    if raw_val is None:
-        return ""
-    return normalize_display(str(raw_val))
-
-
-def _extract_busctl_int(meta: dict[str, Any], key: str) -> int:
-    entry = meta.get(key)
-    if not isinstance(entry, dict):
-        return 0
-    raw_val = entry.get("data")
+def _extract_int(meta: dict[str, Any], key: str) -> int:
+    raw_val = meta.get(key)
     try:
         return int(raw_val) if raw_val is not None else 0
     except TypeError, ValueError:
         return 0
 
 
-def parse_busctl_properties(player_name: str, payload: dict[str, Any]) -> MprisTrack | None:
-    """Parse JSON from `busctl --user --json=short call ... Properties.GetAll`."""
-    data = payload.get("data")
-    if isinstance(data, list):
-        props = data[0] if data and isinstance(data[0], dict) else {}
-    elif isinstance(data, dict):
-        props = data
-    else:
-        return None
+def parse_mpris_properties(player_name: str, props: dict[str, Any]) -> MprisTrack | None:
+    """Parse unpacked `org.mpris.MediaPlayer2.Player` D-Bus properties into MprisTrack."""
+    raw_status = props.get("PlaybackStatus")
+    status = normalize_display(str(raw_status)) if raw_status is not None else ""
 
-    status_entry = props.get("PlaybackStatus")
-    status = (
-        normalize_display(str(status_entry.get("data", "")))
-        if isinstance(status_entry, dict)
-        else ""
-    )
+    raw_meta = props.get("Metadata")
+    meta = raw_meta if isinstance(raw_meta, dict) else {}
 
-    meta_entry = props.get("Metadata")
-    meta = meta_entry.get("data") if isinstance(meta_entry, dict) else {}
-    if not isinstance(meta, dict):
-        meta = {}
-
-    title = _extract_busctl_str(meta, "xesam:title")
-    artists = _extract_busctl_artists(meta)
-    album = _extract_busctl_str(meta, "xesam:album")
-    length_us = _extract_busctl_int(meta, "mpris:length")
-    url = _extract_busctl_str(meta, "xesam:url")
+    raw_title = meta.get("xesam:title")
+    title = normalize_display(str(raw_title)) if raw_title is not None else ""
+    artists = _extract_artists(meta)
+    raw_album = meta.get("xesam:album")
+    album = normalize_display(str(raw_album)) if raw_album is not None else ""
+    length_us = _extract_int(meta, "mpris:length")
+    raw_url = meta.get("xesam:url")
+    url = normalize_display(str(raw_url)) if raw_url is not None else ""
 
     if not status and not title:
         return None
@@ -177,54 +153,91 @@ def track_matches_filters(
     return True
 
 
-class BusctlMprisBackend:
-    """Zero-dependency MPRIS reader powered by systemd `busctl --user --json=short`."""
+async def _default_bus_factory() -> MessageBus:
+    return await MessageBus().connect()
+
+
+class DbusMprisBackend:
+    """Native D-Bus MPRIS reader powered by `dbus-fast`."""
 
     def __init__(
         self,
         config: MprisConfig,
         logger: logging.Logger,
         *,
-        runner: Any = subprocess.run,
+        bus_factory: Callable[[], Awaitable[Any]] = _default_bus_factory,
+        timeout_seconds: float = DBUS_TIMEOUT_SECONDS,
     ) -> None:
         self._config = config
         self._logger = logger
-        self._runner = runner
+        self._bus_factory = bus_factory
+        self._timeout_seconds = timeout_seconds
+        self._runner: asyncio.Runner | None = None
+        self._bus: Any = None
 
-    def _run_busctl_json(self, args: list[str]) -> dict[str, Any]:
-        cmd = ["busctl", "--user", "--json=short", *args]
-        proc = self._runner(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=5.0,
-            check=False,
-        )
-        if proc.returncode != 0:
-            stderr = (proc.stderr or "").strip()
-            raise MprisBackendError(f"busctl failed ({proc.returncode}): {stderr}")
+    def _run(self, coro: Awaitable[Any]) -> Any:
+        if self._runner is None:
+            self._runner = asyncio.Runner()
+        return self._runner.run(coro)  # type: ignore[arg-type]
+
+    def _reset_bus(self) -> None:
+        if self._bus is not None:
+            with contextlib.suppress(Exception):
+                self._bus.disconnect()
+            self._bus = None
+
+    def close(self) -> None:
+        """Disconnect the D-Bus session bus and close the internal asyncio runner."""
+        self._reset_bus()
+        if self._runner is not None:
+            self._runner.close()
+            self._runner = None
+
+    async def _call_dbus(
+        self,
+        *,
+        destination: str,
+        path: str,
+        interface: str,
+        member: str,
+        signature: str = "",
+        body: list[Any] | None = None,
+    ) -> list[Any]:
         try:
-            parsed = json.loads(proc.stdout)
-        except json.JSONDecodeError as exc:
-            raise MprisBackendError(f"Invalid JSON from busctl: {exc}") from exc
-        if not isinstance(parsed, dict):
-            raise MprisBackendError("Unexpected non-object JSON from busctl.")
-        return parsed
+            if self._bus is None:
+                self._bus = await asyncio.wait_for(
+                    self._bus_factory(),
+                    timeout=self._timeout_seconds,
+                )
+            msg = Message(
+                destination=destination,
+                path=path,
+                interface=interface,
+                member=member,
+                signature=signature,
+                body=body or [],
+            )
+            reply = await asyncio.wait_for(
+                self._bus.call(msg),
+                timeout=self._timeout_seconds,
+            )
+        except (TimeoutError, OSError, EOFError, DBusError) as exc:
+            self._reset_bus()
+            raise MprisBackendError(f"D-Bus call {interface}.{member} failed: {exc}") from exc
 
-    def list_players(self) -> list[str]:
-        payload = self._run_busctl_json(
-            [
-                "call",
-                "org.freedesktop.DBus",
-                "/org/freedesktop/DBus",
-                "org.freedesktop.DBus",
-                "ListNames",
-            ]
+        if reply.message_type == MessageType.ERROR:
+            err_detail = reply.body[0] if reply.body else "unknown D-Bus error"
+            raise MprisBackendError(f"D-Bus call {interface}.{member} returned error: {err_detail}")
+        return list(reply.body)
+
+    async def _list_players_async(self) -> list[str]:
+        body = await self._call_dbus(
+            destination="org.freedesktop.DBus",
+            path="/org/freedesktop/DBus",
+            interface="org.freedesktop.DBus",
+            member="ListNames",
         )
-        data = payload.get("data")
-        names = data[0] if isinstance(data, list) and data and isinstance(data[0], list) else []
+        names = body[0] if body and isinstance(body[0], list) else []
         players = [
             str(name)
             for name in names
@@ -238,24 +251,24 @@ class BusctlMprisBackend:
         ]
         return sorted(players)
 
-    def read_player_track(self, service_name: str) -> MprisTrack | None:
-        payload = self._run_busctl_json(
-            [
-                "call",
-                service_name,
-                MPRIS_OBJECT_PATH,
-                "org.freedesktop.DBus.Properties",
-                "GetAll",
-                "s",
-                MPRIS_PLAYER_IFACE,
-            ]
+    async def _read_player_track_async(self, service_name: str) -> MprisTrack | None:
+        body = await self._call_dbus(
+            destination=service_name,
+            path=MPRIS_OBJECT_PATH,
+            interface="org.freedesktop.DBus.Properties",
+            member="GetAll",
+            signature="s",
+            body=[MPRIS_PLAYER_IFACE],
         )
+        if not body or not isinstance(body[0], dict):
+            return None
+        unpacked = unpack_variants(body[0])
         short_name = service_name.removeprefix(MPRIS_PREFIX)
-        return parse_busctl_properties(short_name, payload)
+        return parse_mpris_properties(short_name, unpacked)
 
-    def get_active_track(self) -> MprisTrack | None:
+    async def _get_active_track_async(self) -> MprisTrack | None:
         try:
-            players = self.list_players()
+            players = await self._list_players_async()
         except MprisBackendError as exc:
             self._logger.debug("[MPRIS] Failed to list D-Bus names: %s", exc)
             return None
@@ -263,7 +276,7 @@ class BusctlMprisBackend:
         fallback_paused: MprisTrack | None = None
         for service in players:
             try:
-                track = self.read_player_track(service)
+                track = await self._read_player_track_async(service)
             except MprisBackendError as exc:
                 self._logger.debug("[MPRIS] Skipping %s: %s", service, exc)
                 continue
@@ -282,103 +295,16 @@ class BusctlMprisBackend:
 
         return fallback_paused
 
+    def list_players(self) -> list[str]:
+        return list(self._run(self._list_players_async()))
 
-class PlayerctlMprisBackend:
-    """Optional MPRIS backend using `playerctl` CLI if installed."""
-
-    def __init__(
-        self,
-        config: MprisConfig,
-        logger: logging.Logger,
-        *,
-        runner: Any = subprocess.run,
-    ) -> None:
-        self._config = config
-        self._logger = logger
-        self._runner = runner
+    def read_player_track(self, service_name: str) -> MprisTrack | None:
+        return self._run(self._read_player_track_async(service_name))
 
     def get_active_track(self) -> MprisTrack | None:
-        sep = "\x1f"
-        fmt = sep.join(
-            [
-                "{{playerName}}",
-                "{{status}}",
-                "{{title}}",
-                "{{artist}}",
-                "{{album}}",
-                "{{xesam:url}}",
-                "{{mpris:length}}",
-            ]
-        )
-        cmd = ["playerctl", "--all-players", "metadata", "--format", fmt]
-        proc = self._runner(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=5.0,
-            check=False,
-        )
-        if proc.returncode != 0 or not proc.stdout.strip():
-            return None
-
-        fallback: MprisTrack | None = None
-        for line in proc.stdout.splitlines():
-            parts = line.split(sep)
-            if len(parts) != 7:
-                continue
-            player, status, title, artist, album, url, length_raw = (
-                normalize_display(p) for p in parts
-            )
-            try:
-                length_us = int(length_raw) if length_raw else 0
-            except ValueError:
-                length_us = 0
-            if not _is_player_eligible(
-                f"{MPRIS_PREFIX}{player}",
-                self._config.allowed_players,
-                self._config.ignored_players,
-            ):
-                continue
-            track = MprisTrack(
-                player_name=player,
-                status=status,
-                title=title,
-                artists=(artist,) if artist else (),
-                album=album,
-                length_us=length_us,
-                url=url,
-            )
-            if not track_matches_filters(track, self._config, self._logger):
-                continue
-            if status == "Playing" and title:
-                return track
-            if fallback is None and title:
-                fallback = track
-        return fallback
+        return self._run(self._get_active_track_async())
 
 
 def create_mpris_backend(config: MprisConfig, logger: logging.Logger) -> MprisBackend:
     """Select and instantiate the configured MPRIS backend."""
-    choice = config.backend
-    if choice == "playerctl":
-        if not shutil.which("playerctl"):
-            raise MprisBackendError(
-                "mpris.backend='playerctl' requested, but `playerctl` is not installed."
-            )
-        return PlayerctlMprisBackend(config, logger)
-
-    if choice == "busctl":
-        if not shutil.which("busctl"):
-            raise MprisBackendError(
-                "mpris.backend='busctl' requested, but `busctl` is not installed."
-            )
-        return BusctlMprisBackend(config, logger)
-
-    # "auto": prefer busctl (native systemd JSON, handles Thai/CJK cleanly), else playerctl
-    if shutil.which("busctl"):
-        return BusctlMprisBackend(config, logger)
-    if shutil.which("playerctl"):
-        return PlayerctlMprisBackend(config, logger)
-    raise MprisBackendError("No MPRIS backend found. Install systemd `busctl` or `playerctl`.")
+    return DbusMprisBackend(config, logger)

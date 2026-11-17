@@ -1,10 +1,8 @@
-"""Tests for MPRIS busctl/playerctl parsing, debouncer, and cooldown guard."""
+"""Tests for MPRIS dbus-fast parsing, debouncer, and cooldown guard."""
 
 from __future__ import annotations
 
-import json
 import logging
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -13,41 +11,56 @@ _SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
+from dbus_fast import Message, Variant  # noqa: E402
+
 from mpris_ig.anti_bot import CooldownGuard, TrackDebouncer  # noqa: E402
 from mpris_ig.config import MprisConfig  # noqa: E402
 from mpris_ig.mpris import (  # noqa: E402
-    BusctlMprisBackend,
+    DbusMprisBackend,
     MprisTrack,
-    parse_busctl_properties,
+    parse_mpris_properties,
     track_matches_filters,
 )
 
 
+class _FakeMessageBus:
+    def __init__(self, responses: dict[str, tuple[str, list[object]]]) -> None:
+        self._responses = responses
+        self.disconnected = False
+
+    async def call(self, msg: Message) -> Message:
+        key = "ListNames" if msg.member == "ListNames" else str(msg.destination)
+        sig, body = self._responses[key]
+        return Message.new_method_return(
+            Message(
+                destination=msg.destination,
+                path=msg.path,
+                interface=msg.interface,
+                member=msg.member,
+                serial=1,
+            ),
+            sig,
+            body,
+        )
+
+    def disconnect(self) -> None:
+        self.disconnected = True
+
+
 class MprisParsingTests(unittest.TestCase):
-    def test_parse_busctl_properties_preserves_thai_and_cjk_utf8(self):
-        payload = {
-            "type": "a{sv}",
-            "data": [
-                {
-                    "PlaybackStatus": {"type": "s", "data": "Playing"},
-                    "Metadata": {
-                        "type": "a{sv}",
-                        "data": {
-                            "xesam:title": {"type": "s", "data": "แค่มีเธอ (夜曲)"},
-                            "xesam:artist": {"type": "as", "data": ["Three Man Down", "周杰倫"]},
-                            "xesam:album": {"type": "s", "data": "อัลบั้มทดสอบ"},
-                            "xesam:url": {
-                                "type": "s",
-                                "data": "https://music.youtube.com/watch?v=abc123",
-                            },
-                            "mpris:length": {"type": "x", "data": 215000000},
-                        },
-                    },
-                }
-            ],
+    def test_parse_mpris_properties_preserves_thai_and_cjk_utf8(self):
+        props = {
+            "PlaybackStatus": "Playing",
+            "Metadata": {
+                "xesam:title": "แค่มีเธอ (夜曲)",
+                "xesam:artist": ["Three Man Down", "周杰倫"],
+                "xesam:album": "อัลบั้มทดสอบ",
+                "xesam:url": "https://music.youtube.com/watch?v=abc123",
+                "mpris:length": 215000000,
+            },
         }
 
-        track = parse_busctl_properties("spotify", payload)
+        track = parse_mpris_properties("spotify", props)
         self.assertIsNotNone(track)
         assert track is not None
         self.assertEqual(track.status, "Playing")
@@ -97,58 +110,61 @@ class MprisParsingTests(unittest.TestCase):
         self.assertTrue(track_matches_filters(long_mix, disabled_cfg, logger))
         self.assertTrue(track_matches_filters(regular_yt, disabled_cfg, logger))
 
-    def test_busctl_backend_filters_ignored_and_picks_playing(self):
-        responses = {
-            "ListNames": {
-                "type": "as",
-                "data": [
+    def test_dbus_backend_filters_ignored_and_picks_playing(self):
+        fake_bus = _FakeMessageBus(
+            {
+                "ListNames": (
+                    "as",
                     [
-                        "org.freedesktop.DBus",
-                        "org.mpris.MediaPlayer2.kdeconnect.phone",
-                        "org.mpris.MediaPlayer2.spotify",
-                        "org.mpris.MediaPlayer2.chromium.instance1",
-                    ]
-                ],
-            },
-            "org.mpris.MediaPlayer2.chromium.instance1": {
-                "type": "a{sv}",
-                "data": [
-                    {
-                        "PlaybackStatus": {"type": "s", "data": "Paused"},
-                        "Metadata": {
-                            "type": "a{sv}",
-                            "data": {"xesam:title": {"type": "s", "data": "Paused Video"}},
-                        },
-                    }
-                ],
-            },
-            "org.mpris.MediaPlayer2.spotify": {
-                "type": "a{sv}",
-                "data": [
-                    {
-                        "PlaybackStatus": {"type": "s", "data": "Playing"},
-                        "Metadata": {
-                            "type": "a{sv}",
-                            "data": {
-                                "xesam:title": {"type": "s", "data": "晴天"},
-                                "xesam:artist": {"type": "as", "data": ["周杰倫"]},
-                            },
-                        },
-                    }
-                ],
-            },
-        }
+                        [
+                            "org.freedesktop.DBus",
+                            "org.mpris.MediaPlayer2.kdeconnect.phone",
+                            "org.mpris.MediaPlayer2.spotify",
+                            "org.mpris.MediaPlayer2.chromium.instance1",
+                        ]
+                    ],
+                ),
+                "org.mpris.MediaPlayer2.chromium.instance1": (
+                    "a{sv}",
+                    [
+                        {
+                            "PlaybackStatus": Variant("s", "Paused"),
+                            "Metadata": Variant(
+                                "a{sv}",
+                                {"xesam:title": Variant("s", "Paused Video")},
+                            ),
+                        }
+                    ],
+                ),
+                "org.mpris.MediaPlayer2.spotify": (
+                    "a{sv}",
+                    [
+                        {
+                            "PlaybackStatus": Variant("s", "Playing"),
+                            "Metadata": Variant(
+                                "a{sv}",
+                                {
+                                    "xesam:title": Variant("s", "晴天"),
+                                    "xesam:artist": Variant("as", ["周杰倫"]),
+                                },
+                            ),
+                        }
+                    ],
+                ),
+            }
+        )
 
-        def fake_runner(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-            body = responses["ListNames"] if "ListNames" in cmd else responses[cmd[4]]
-            return subprocess.CompletedProcess(
-                cmd, 0, stdout=json.dumps(body, ensure_ascii=False), stderr=""
-            )
+        async def fake_factory() -> _FakeMessageBus:
+            return fake_bus
 
         cfg = MprisConfig(ignored_players=("kdeconnect",))
-        backend = BusctlMprisBackend(cfg, logging.getLogger("test_mpris"), runner=fake_runner)
-        active = backend.get_active_track()
+        backend = DbusMprisBackend(cfg, logging.getLogger("test_mpris"), bus_factory=fake_factory)
+        try:
+            active = backend.get_active_track()
+        finally:
+            backend.close()
 
+        self.assertTrue(fake_bus.disconnected)
         self.assertIsNotNone(active)
         assert active is not None
         self.assertEqual(active.player_name, "spotify")
