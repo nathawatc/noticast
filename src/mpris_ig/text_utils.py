@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from difflib import SequenceMatcher
 
+import grapheme
 from instagrapi.types import Track
+from rapidfuzz import fuzz
 
 MAX_NOTE_TEXT_LENGTH = 60
 
@@ -81,7 +82,7 @@ def format_note_text(
     max_len: int = MAX_NOTE_TEXT_LENGTH,
 ) -> str:
     """Render an optional note text template and truncate within Instagram's 60-char limit."""
-    if not template:
+    if not template or max_len <= 0:
         return ""
     rendered = normalize_display(
         template.format(
@@ -91,20 +92,30 @@ def format_note_text(
     )
     if len(rendered) <= max_len:
         return rendered
-    if max_len <= 1:
-        return rendered[:max_len]
 
-    cut = max_len - 1
-    # Never slice in the middle of a Thai/Unicode combining character cluster.
-    while cut > 0 and unicodedata.category(rendered[cut]) in ("Mn", "Mc"):
-        cut -= 1
-    return f"{rendered[:cut].rstrip()}…"
+    clusters = [c for c in grapheme.graphemes(rendered) if isinstance(c, str)]
+    if max_len == 1:
+        return clusters[0] if clusters and len(clusters[0]) == 1 else ""
+
+    # Never slice inside a UAX #29 grapheme cluster (Thai tone marks, ZWJ emojis, flags).
+    kept: list[str] = []
+    used = 0
+    for cluster in clusters:
+        if used + len(cluster) > max_len - 1:
+            break
+        kept.append(cluster)
+        used += len(cluster)
+    return f"{''.join(kept).rstrip()}…"
+
+
+def _is_meaningful_substring(a: str, b: str) -> bool:
+    return bool(a and b and min(len(a), len(b)) >= 3 and (a in b or b in a))
 
 
 def _similarity(a: str, b: str) -> float:
     if not a or not b:
         return 0.0
-    return SequenceMatcher(None, a.replace(" ", ""), b.replace(" ", "")).ratio()
+    return fuzz.token_set_ratio(a, b) / 100.0
 
 
 def score_track_match(track: Track, target_title: str, target_artist: str = "") -> float:
@@ -117,11 +128,11 @@ def score_track_match(track: Track, target_title: str, target_artist: str = "") 
 
     score = 0.0
 
-    # Title matching (handles exact, substring, and character-bigram similarity for CJK/Thai)
+    # Title matching (handles exact, substring, and token-set similarity for CJK/Thai/EN)
     if cand_title and cand_title in (raw_goal_title, goal_title):
         score += 60.0
-    elif cand_title and (
-        goal_title in cand_title or cand_title in goal_title or raw_goal_title in cand_title
+    elif _is_meaningful_substring(cand_title, goal_title) or _is_meaningful_substring(
+        cand_title, raw_goal_title
     ):
         score += 42.0
     else:
@@ -134,11 +145,11 @@ def score_track_match(track: Track, target_title: str, target_artist: str = "") 
     if goal_artist:
         if cand_artist == goal_artist:
             score += 40.0
-        elif goal_artist in cand_artist or cand_artist in goal_artist:
+        elif _is_meaningful_substring(cand_artist, goal_artist):
             score += 28.0
         else:
             score += 22.0 * _similarity(cand_artist, goal_artist)
-    elif cand_artist and cand_artist in raw_goal_title:
+    elif _is_meaningful_substring(cand_artist, raw_goal_title):
         # Handle players that embed "Artist - Title" into xesam:title with empty artist
         score += 20.0
 

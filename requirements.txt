@@ -1,2 +1,4 @@
 instagrapi==3.2.15
 dbus-fast==5.2.0
+grapheme==0.6.0
+rapidfuzz==3.14.6
