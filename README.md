@@ -1,4 +1,4 @@
-# noticast
+# Noticast
 
 Share your currently playing Linux media (MPRIS2) to Instagram Music Notes
 automatically or from the CLI.
@@ -9,10 +9,6 @@ automatically or from the CLI.
 > rate limits, temporary restrictions, security checkpoints, or account
 > suspension. Use responsibly at your own risk and respect the terms of
 > service of the platforms you interact with.
-
-> [!NOTE]
-> Currently in early internal testing (`v0.0.1`) and actively being improved.
-> Technical internals and contributor guidelines live in [AGENTS.md](AGENTS.md).
 
 ## Requirements
 
@@ -46,7 +42,10 @@ python main.py manual
 python main.py daemon --dry-run
 python main.py daemon
 
-# Optional: -v / --verbose for debug output, or log out & clear session
-python main.py -v daemon --dry-run
+# 4. Clear active Note or log out & remove session.json
+python main.py clear
 python main.py logout
+
+# Optional: -v / --verbose for debug output (or install `noticast` via `pip install -e .`)
+python main.py -v daemon --dry-run
 ```

@@ -1,1 +1,1 @@
-"""Operating modes for mpris-ig-nowplaying."""
+"""Operating modes for noticast."""

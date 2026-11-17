@@ -1,12 +1,10 @@
 # AGENTS.md
 
-Technical reference and contributor/agent guidelines for **noticast** (`v0.0.1`,
-currently in internal testing).
+Technical reference and contributor/agent guidelines for **noticast** (`v0.1.0`).
 
 ## Status & Scope
 
-- **Stage**: Early internal testing (`v0.0.1`); interfaces and defaults may
-  evolve.
+- **Stage**: `v0.1.0` internal testing; interfaces and defaults may evolve.
 - **Environment Rule**: Always work inside a Python `3.14+` virtual environment
   (`.venv`). Never install packages globally.
 - **Privacy Rule**: Never commit `session.json`, `config.toml`,
@@ -16,18 +14,15 @@ currently in internal testing).
 ## Architecture (`src/mpris_ig/`)
 
 ```text
-main.py                    # Launcher adding src/ to sys.path
-src/mpris_ig/
-├── cli.py                 # Argument parsing, --config / -v / -q, dispatch
-├── config.py              # Dataclass schema + tomllib loader + validation
-├── logging_utils.py       # INFO/DEBUG logger + UTF-8 HTTP/JSON debug output
-├── text_utils.py          # NFC/NFKC normalization, CJK/Thai scoring, 60-char
-├── state.py               # .note_state.json cache (note_id + track info)
-├── session.py             # Client factory, device/region spoof, 2FA, logout
-├── notes_service.py       # instagrapi 3.2.15 wrapper + error classification
-├── mpris.py               # BusctlMprisBackend / PlayerctlMprisBackend
-├── anti_bot.py            # TrackDebouncer, CooldownGuard, random_jitter
-└── modes/
+main.py # Launcher adding src/ to sys.path src/mpris_ig/ ├── cli.py # Argument
+parsing, --config / -v / -q, clear, dispatch ├── config.py # Pydantic schema +
+tomllib loader + path resolution ├── logging_utils.py # INFO/DEBUG logger +
+UTF-8 HTTP/JSON debug output ├── text_utils.py # NFC/NFKC normalization,
+rapidfuzz scoring, grapheme 60-char ├── state.py # .note_state.json cache
+(note_id + track info) ├── session.py # Client factory, device/region spoof,
+2FA, logout ├── notes_service.py # instagrapi 3.2.15 wrapper, match cache, error
+handling ├── mpris.py # DbusMprisBackend (dbus-fast) with player priority ├──
+anti_bot.py # TrackDebouncer (24h TTL), CooldownGuard, random_jitter └── modes/
     ├── manual.py          # Mode 1: interactive search + top-5 pick + post
     └── daemon.py          # Mode 2: signal-safe MPRIS loop + startup sync
 ```
@@ -58,11 +53,10 @@ src/mpris_ig/
 
 ## MPRIS & Anti-Bot Details
 
-- **MPRIS Backend**: `BusctlMprisBackend` invokes `busctl --user --json=short`
-  (`ListNames` + `Properties.GetAll` on `org.mpris.MediaPlayer2.Player`) with
-  strict UTF-8 decoding so non-ASCII titles are preserved without GVariant
-  octal escapes. `PlayerctlMprisBackend` is available if `playerctl` is
-  installed.
+- **MPRIS Backend**: `DbusMprisBackend` queries the session bus natively via
+  `dbus-fast` (`ListNames` + `Properties.GetAll` on
+  `org.mpris.MediaPlayer2.Player`), preserving full UTF-8 metadata and
+  respecting `allowed_players` order before alphabetical fallback.
 - **Track Filters**:
   - `allowed_url_prefixes`: Case-insensitive prefix match against `xesam:url`
     (`[]` disables).
@@ -75,9 +69,11 @@ src/mpris_ig/
      `audio_cluster_id`) and compares with `.note_state.json` (`note_id`
      verified) to avoid re-posting the active song.
   2. `TrackDebouncer` requires a `"Playing"` track to remain unchanged for
-     `debounce_seconds` before matching.
+     `debounce_seconds` before matching, and expires its last-posted guard after
+     24 hours (`86400s`).
   3. `CooldownGuard` enforces `min_post_interval_seconds` (recommended
-     `>= 120s`).
+     `>= 120s`), rate-limit cooldowns, and capped exponential backoff on
+     transient `NotesApiError`.
   4. `random_jitter(jitter_min_seconds, jitter_max_seconds)` runs before
      searching, followed by a post-jitter MPRIS re-check to skip tracks paused
      or skipped mid-wait.
@@ -85,15 +81,13 @@ src/mpris_ig/
 
 ## Thai / CJK / English Text Handling
 
-- All file I/O, subprocess calls, and JSON debug dumps use UTF-8
-  (`ensure_ascii=False`).
+- All file I/O and JSON debug dumps use UTF-8 (`ensure_ascii=False`).
 - `normalize_display()` applies `NFC`; `normalize_match_key()` applies `NFKC` +
   `casefold()`.
-- `score_track_match()` uses exact/substring matching plus character-bigram
-  Dice similarity (works without spaces for Chinese/Japanese and preserves Thai
-  vowels/tone marks).
-- `format_note_text()` avoids slicing across `Mn`/`Mc` Unicode combining marks
-  when truncating to 60 characters.
+- `score_track_match()` combines exact/substring matching (including 2-char
+  non-ASCII and word-bounded short titles) with `rapidfuzz.fuzz.token_set_ratio`.
+- `format_note_text()` uses `grapheme` UAX #29 clusters so truncation to 60
+  characters never slices across combining marks or ZWJ emojis.
 
 ## Verification & Tooling
 
@@ -106,13 +100,14 @@ ruff check
 ruff format --check main.py src tests
 basedpyright
 python -m unittest discover -s tests -v
+rumdl check
 ```
 
 ## Known Limitations / Improvement Ideas
 
-- Polling via `busctl` subprocess works reliably with zero extra deps, but
-  could be replaced/complemented with an event-driven `dbus-fast`
-  (`PropertiesChanged`) backend in the future.
+- Polling via `DbusMprisBackend` over a persistent `dbus-fast` connection works
+  reliably, and could be complemented with an event-driven `PropertiesChanged`
+  signal subscription in the future.
 - `cl.get_notes()` (`Note` Pydantic model in `instagrapi 3.2.15`) strips music
   fields; `extract_active_music_note()` defensively scans `cl.last_json` and may
   need adjustment if Instagram changes the `InboxTrayRequest` GraphQL response
