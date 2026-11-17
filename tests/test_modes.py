@@ -39,6 +39,7 @@ from mpris_ig.session import (  # noqa: E402
     authenticate_and_save,
     load_authenticated_client,
     logout_session,
+    setup_session_interactive,
 )
 from mpris_ig.state import NoteState, load_note_state, save_note_state  # noqa: E402
 
@@ -134,6 +135,48 @@ class SessionFlowTests(unittest.TestCase):
         cl.create_music_note.side_effect = AssertionError("alacorn_session_id is required")
         with self.assertRaises(NotesApiError):
             service.post_music_note(_track())
+
+    def test_setup_reuse_existing_preserves_saved_device_settings(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            session_path = Path(tmpdir) / "session.json"
+            session_path.write_text("{}", encoding="utf-8")
+            cfg = AppConfig(paths=PathsConfig(session_file=session_path))
+
+            mock_cl = mock.MagicMock()
+            mock_cl.user_id = 123
+            mock_cl.login.return_value = True
+
+            # Answering 'y' without --keep-device must NOT overwrite saved device/region.
+            answers = iter(["y", "alice"])
+            with mock.patch("mpris_ig.session.create_client", return_value=mock_cl) as create_fn:
+                rc = setup_session_interactive(
+                    cfg,
+                    input_fn=lambda _: next(answers),
+                    getpass_fn=lambda _: "secret",
+                )
+            self.assertEqual(rc, 0)
+            create_fn.assert_called_once_with(
+                cfg,
+                reuse_existing=True,
+                apply_profile=False,
+                with_challenge_flow=True,
+            )
+
+            # Passing --keep-device skips prompt and preserves saved device/region.
+            with mock.patch("mpris_ig.session.create_client", return_value=mock_cl) as create_fn:
+                rc_keep = setup_session_interactive(
+                    cfg,
+                    keep_device=True,
+                    input_fn=lambda _: "alice",
+                    getpass_fn=lambda _: "secret",
+                )
+            self.assertEqual(rc_keep, 0)
+            create_fn.assert_called_once_with(
+                cfg,
+                reuse_existing=True,
+                apply_profile=False,
+                with_challenge_flow=True,
+            )
 
 
 class ManualModeTests(unittest.TestCase):

@@ -162,14 +162,17 @@ def setup_session_interactive(
 
     reuse_existing = False
     if session_path.exists():
-        answer = (
-            input_fn(f"{session_path} already exists. Reuse its device settings? [y/N]: ")
-            .strip()
-            .lower()
-        )
-        reuse_existing = answer in ("y", "yes")
+        if keep_device:
+            reuse_existing = True
+        else:
+            answer = (
+                input_fn(f"{session_path} already exists. Reuse its device settings? [y/N]: ")
+                .strip()
+                .lower()
+            )
+            reuse_existing = answer in ("y", "yes")
 
-    apply_profile = not (reuse_existing and keep_device)
+    apply_profile = not reuse_existing
     if apply_profile:
         print(
             f"Device profile: {config.device.manufacturer} {config.device.model} "
