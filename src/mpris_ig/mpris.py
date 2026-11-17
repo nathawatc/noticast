@@ -53,20 +53,23 @@ class _MessageBusProtocol(Protocol):
     def disconnect(self) -> None: ...
 
 
-def _is_player_eligible(
+def _player_priority(
     service_name: str,
     allowed: tuple[str, ...],
     ignored: tuple[str, ...],
-) -> bool:
+) -> int | None:
     short_name = service_name.removeprefix(MPRIS_PREFIX).casefold()
 
     if any(token.casefold() in short_name for token in ignored if token):
-        return False
+        return None
 
     if not allowed:
-        return True
+        return 0
 
-    return any(token.casefold() in short_name for token in allowed if token)
+    for idx, token in enumerate(allowed):
+        if token and token.casefold() in short_name:
+            return idx
+    return None
 
 
 def _extract_artists(meta: Mapping[str, object]) -> tuple[str, ...]:
@@ -241,18 +244,18 @@ class DbusMprisBackend:
             member="ListNames",
         )
         names = cast(list[object], body[0]) if body and isinstance(body[0], list) else []
-        players = [
-            name
-            for name in names
-            if isinstance(name, str)
-            and name.startswith(MPRIS_PREFIX)
-            and _is_player_eligible(
-                name,
-                self._config.allowed_players,
-                self._config.ignored_players,
-            )
-        ]
-        return sorted(players)
+        matched: list[tuple[int, str]] = []
+        for name in names:
+            if isinstance(name, str) and name.startswith(MPRIS_PREFIX):
+                prio = _player_priority(
+                    name,
+                    self._config.allowed_players,
+                    self._config.ignored_players,
+                )
+                if prio is not None:
+                    matched.append((prio, name))
+        matched.sort()
+        return [name for _, name in matched]
 
     async def _read_player_track_async(self, service_name: str) -> MprisTrack | None:
         body = await self._call_dbus(

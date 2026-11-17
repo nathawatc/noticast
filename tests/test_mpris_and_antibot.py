@@ -270,6 +270,58 @@ class MprisParsingTests(unittest.TestCase):
         self.assertEqual(active.status, "Paused")
         self.assertEqual(active.title, "VLC Paused")
 
+    def test_dbus_backend_respects_allowed_players_priority_order(self):
+        fake_bus = _FakeMessageBus(
+            {
+                "ListNames": (
+                    "as",
+                    [
+                        [
+                            "org.mpris.MediaPlayer2.chromium",
+                            "org.mpris.MediaPlayer2.spotify",
+                        ]
+                    ],
+                ),
+                "org.mpris.MediaPlayer2.chromium": (
+                    "a{sv}",
+                    [
+                        {
+                            "PlaybackStatus": Variant("s", "Playing"),
+                            "Metadata": Variant(
+                                "a{sv}", {"xesam:title": Variant("s", "Browser Clip")}
+                            ),
+                        }
+                    ],
+                ),
+                "org.mpris.MediaPlayer2.spotify": (
+                    "a{sv}",
+                    [
+                        {
+                            "PlaybackStatus": Variant("s", "Playing"),
+                            "Metadata": Variant(
+                                "a{sv}", {"xesam:title": Variant("s", "Spotify Song")}
+                            ),
+                        }
+                    ],
+                ),
+            }
+        )
+
+        async def factory() -> _FakeMessageBus:
+            return fake_bus
+
+        cfg = MprisConfig(allowed_players=("spotify", "chromium"))
+        backend = DbusMprisBackend(cfg, logging.getLogger("test_prio"), bus_factory=factory)
+        try:
+            active = backend.get_active_track()
+        finally:
+            backend.close()
+
+        self.assertIsNotNone(active)
+        assert active is not None
+        self.assertEqual(active.player_name, "spotify")
+        self.assertEqual(active.title, "Spotify Song")
+
 
 class AntiBotTests(unittest.TestCase):
     def test_debouncer_ignores_rapid_skips_and_emits_after_stable_window(self):
